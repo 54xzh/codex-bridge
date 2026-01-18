@@ -21,6 +21,9 @@
 - 新增图片能力：Chat 页支持选择并发送图片（`chat.send(images)`），Bridge Server 转发到 app-server 并在会话回放接口返回 `images`（data URL），WinUI 可解码显示 session 中的 base64 图片
 - 新增仓库入口文档 `README.md`：项目简介、快速开始、配置与安全、文档索引（指向 `helloagents/wiki`）
 
+### 变更
+- 调整 WinUI 启动窗口体验：增大初始大小，并将初始大小作为最小尺寸；启动时屏幕居中（避免窗口元素被遮挡）
+
 ### 修复
 - 修复 MSIX 调试部署/打包场景下未包含 `bridge-server/` 导致自动启动失败
 - 修复 WinUI 启动后 Chat 页未自动连接（需进入设置页才触发）：Chat 页加载时 EnsureStarted 并自动连接

@@ -14,6 +14,10 @@
 - 字体：容器（如 `StackPanel`）不支持 `FontFamily`，也不要在容器上使用 `TextElement.FontFamily`；需要统一字体时请在文本控件（如 `TextBlock`）上设置 `FontFamily`，或在 `Resources` 中对 `TextBlock`/`Control` 定义 Style。
 - Flyout 菜单：`MenuFlyoutItem` 的字体通常不会从触发按钮内容继承；需要统一中文字体时请在 `MenuFlyoutItem` 上显式设置 `FontFamily`（或通过资源字典/Style 统一配置）。
 
+### 窗口约定
+- 启动时窗口默认在当前屏幕工作区居中。
+- 启动时窗口初始大小会同步作为最小尺寸，避免用户缩到过小导致 UI 元素被遮挡。
+
 ### 需求: GUI 核心交互
 **模块:** WinUI Client
 
@@ -64,3 +68,4 @@ Chat 页可展示运行追踪信息（Trace）：包括思考摘要与执行命�
 - [202601181551_trace_timeline](../../history/2026-01/202601181551_trace_timeline/) - WinUI：Trace 时间线（思考/命令/回答按时间顺序）
 - [202601181735_app_server_approvals](../../history/2026-01/202601181735_app_server_approvals/) - WinUI：审批弹窗 + delta 流式渲染（assistant/命令/思考摘要）
 - [202601190157_chat_images](../../history/2026-01/202601190157_chat_images/) - WinUI：Chat 页图片选择/预览/发送 + 会话回放图片解码显示
+- [202601190247_window_init_size_center](../../history/2026-01/202601190247_window_init_size_center/) - WinUI：增大启动窗口初始大小，并将初始大小作为最小尺寸；启动时屏幕居中

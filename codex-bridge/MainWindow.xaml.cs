@@ -25,11 +25,7 @@ namespace codex_bridge
         {
             InitializeComponent();
 
-            // Set default window size
-            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
-            var windowId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
-            var appWindow = Microsoft.UI.Windowing.AppWindow.GetFromWindowId(windowId);
-            appWindow.Resize(new Windows.Graphics.SizeInt32(1280, 800));
+            WindowSizing.ApplyStartupSizingAndCenter(this);
 
             // Load recent sessions on startup
             _ = LoadRecentSessionsAsync();
