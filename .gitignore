@@ -1,0 +1,29 @@
+# Visual Studio / IDE
+.vs/
+.idea/
+.vscode/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.slnx.user
+
+# .NET build output
+bin/
+obj/
+artifacts/
+TestResults/
+*.log
+
+# NuGet packages (outputs)
+*.nupkg
+*.snupkg
+
+# Windows app packaging (AppX/MSIX)
+AppPackages/
+BundleArtifacts/
+*.appx
+*.appxbundle
+*.msix
+*.msixbundle
+*.appinstaller

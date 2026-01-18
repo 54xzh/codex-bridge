@@ -1,0 +1,63 @@
+# WinUI Client
+
+## 目的
+提供 Windows 端 GUI，展示会话与流式输出，并提供工作区、diff、设置等交互。
+
+## 模块概述
+- **职责:** UI 渲染、用户输入、与 Bridge Server 通信、diff 展示与应用控制
+- **状态:** 开发中
+- **最后更新:** 2026-01-18
+
+## 规范
+
+### XAML 约定
+- 字体：容器（如 `StackPanel`）不支持直接设置 `FontFamily`；需要统一字体时用 `TextElement.FontFamily`（或在 `Resources` 中对 `TextBlock`/`Control` 定义 Style）。
+
+### 需求: GUI 核心交互
+**模块:** WinUI Client
+
+#### 场景: 聊天与流式输出
+以增量事件实时渲染回复，支持取消与重试。
+Chat 页支持配置 `model`、`approvalPolicy`（权限模式）与 `effort`（思考深度），并在需要时弹出审批对话框（允许/拒绝/取消任务）。
+其中 `model` 与 `effort` 会自动从 `~/.codex/config.toml` 读取（键：`model`、`model_reasoning_effort`），并在 Chat 页/设置页修改后写回（debounce）。
+Chat 页工作区按钮的描述文本显示 `cwd` 的目录名（basename）；点击后菜单提供“在资源管理器中打开”、“重新选择（FolderPicker）”，并展示最近使用的 5 条 `cwd`（完整路径）以便快速切换。
+当工作区不在 Git 仓库目录内导致旧链路拒绝运行时，可在 Chat 页启用“跳过 Git 检查”（默认开启，保留兼容）。
+Chat 页可展示运行追踪信息（Trace）：包括思考摘要与执行命令，并按时间顺序展示，最终回答显示在 trace 之后（可展开查看）。
+
+#### 场景: 一键启动（自动拉起后端）
+启动 WinUI 时自动拉起本机 Bridge Server（sidecar），随机端口并进行健康检查；Chat 页默认自动连接，无需用户手动填写 WS 地址。
+
+#### 场景: 打包/部署后仍可自动拉起
+在 MSIX 调试部署与发布场景下，Bridge Server 会随应用一起被部署到安装目录的 `bridge-server/` 子目录，确保运行时仍可自动启动。
+
+#### 场景: 连接 Bridge Server（WS）
+默认自动连接 `ws://127.0.0.1:<port>/ws`（由 WinUI 自动拉起后端并分配端口）；也允许手动输入 WS 地址以连接外部/远程 Bridge Server。
+
+#### 场景: 设置页（连接与高级选项）
+设置页用于编辑连接与运行参数（WS 地址、Token、WorkingDirectory、Sandbox/ApprovalPolicy/Effort 等）。
+注意：页面初始化期间会触发控件的 Changed 事件，需要在 UI 初始化完成后再写回 ConnectionService，避免空引用导致崩溃。
+补充：设置页修改 `Model` / `Effort` 会与 `~/.codex/config.toml` 同步（写回为 best-effort）。
+
+#### 场景: 会话管理
+支持列出/创建/选择会话：创建会话需填写 `cwd`（工作区）；列表标题优先使用“首条 user 消息”截断（已过滤环境/指令上下文；若提取失败则回退显示 `sessionId`）；点击会话进入聊天页后自动加载该会话的历史消息（仅显示 user/assistant 的真实对话），并在聊天发送时绑定 `sessionId` 以便 resume。
+选择已有会话后，会自动使用该会话的 `cwd` 作为 Chat 页 `workingDirectory`（同步到 `ConnectionService.WorkingDirectory`），避免手动重复选择工作目录。
+
+## 依赖
+- Bridge Server
+- Protocol
+
+## 变更历史
+- [202601172341_winui_ws_chat](../../history/2026-01/202601172341_winui_ws_chat/) - WinUI 导航 + Chat 页（WS 连接/发送/流式渲染/取消）
+- [202601180007_autostart_backend](../../history/2026-01/202601180007_autostart_backend/) - WinUI：自动拉起后端并默认自动连接（免手动配置）
+- [202601180040_fix_sidecar_packaging](../../history/2026-01/202601180040_fix_sidecar_packaging/) - 修复：MSIX 部署/打包包含后端 Sidecar（避免自动连接失败）
+- [202601180102_session_management](../../history/2026-01/202601180102_session_management/) - WinUI：会话页（列表/创建/选择）+ Chat 绑定 sessionId（resume）
+- [202601180141_session_history_title](../../history/2026-01/202601180141_session_history_title/) - WinUI：会话列表标题（首条 user 消息截断）+ Chat 自动加载会话历史
+- [202601180203_session_message_filter](../../history/2026-01/202601180203_session_message_filter/) - WinUI：会话回放仅显示真实对话（过滤注入上下文）
+- [202601180258_fix_run_no_reply](../../history/2026-01/202601180258_fix_run_no_reply/) - WinUI：失败可见（含 exitCode）+ 跳过 Git 检查开关
+- [202601180330_fix_utf8_stdin](../../history/2026-01/202601180330_fix_utf8_stdin/) - WinUI：会话列表 title 为空时回退显示 sessionId
+- [202601180440_fix_session_cwd](../../history/2026-01/202601180440_fix_session_cwd/) - WinUI：新建会话要求填写 cwd（工作区）
+- [202601180520_default_skip_git_stream_fix](../../history/2026-01/202601180520_default_skip_git_stream_fix/) - WinUI：Chat 页默认跳过 Git 检查；修复流式消息不刷新
+- [202601180700_filter_codex_json_events](../../history/2026-01/202601180700_filter_codex_json_events/) - WinUI：assistant 消息不再显示 codex JSON 事件（由后端映射），并更新 run 占位消息
+- [202601181348_trace_thinking](../../history/2026-01/202601181348_trace_thinking/) - WinUI：Chat 页展示“执行的命令/思考摘要”（可展开）
+- [202601181551_trace_timeline](../../history/2026-01/202601181551_trace_timeline/) - WinUI：Trace 时间线（思考/命令/回答按时间顺序）
+- [202601181735_app_server_approvals](../../history/2026-01/202601181735_app_server_approvals/) - WinUI：审批弹窗 + delta 流式渲染（assistant/命令/思考摘要）

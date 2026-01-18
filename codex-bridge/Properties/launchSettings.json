@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "codex-bridge (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "codex-bridge (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}

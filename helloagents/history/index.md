@@ -1,0 +1,59 @@
+# 变更历史索引
+
+本文件记录所有已完成变更的索引，便于追溯和查询。
+
+---
+
+## 索引
+
+| 时间戳 | 功能名称 | 类型 | 状态 | 方案包路径 |
+|--------|----------|------|------|------------|
+| 202601172220 | codex_gui_shell | 功能 | ?已完成（后端骨架） | [202601172220_codex_gui_shell](2026-01/202601172220_codex_gui_shell/) |
+| 202601172341 | winui_ws_chat | 功能 | ?已完成（WinUI WS Chat） | [202601172341_winui_ws_chat](2026-01/202601172341_winui_ws_chat/) |
+| 202601180007 | autostart_backend | 功能 | ?已完成（自动拉起后端） | [202601180007_autostart_backend](2026-01/202601180007_autostart_backend/) |
+| 202601180040 | fix_sidecar_packaging | 修复 | ?已完成（部署包含后端） | [202601180040_fix_sidecar_packaging](2026-01/202601180040_fix_sidecar_packaging/) |
+| 202601180102 | session_management | 功能 | ?已完成（会话管理） | [202601180102_session_management](2026-01/202601180102_session_management/) |
+| 202601180141 | session_history_title | 功能 | ?已完成（历史消息与标题） | [202601180141_session_history_title](2026-01/202601180141_session_history_title/) |
+| 202601180203 | session_message_filter | 修复 | ?已完成（过滤注入上下文） | [202601180203_session_message_filter](2026-01/202601180203_session_message_filter/) |
+| 202601180234 | fix_codex_path | 修复 | ?已完成（自动定位codex） | [202601180234_fix_codex_path](2026-01/202601180234_fix_codex_path/) |
+| 202601180258 | fix_run_no_reply | 修复 | ?已完成（失败可见/跳过Git检查） | [202601180258_fix_run_no_reply](2026-01/202601180258_fix_run_no_reply/) |
+| 202601180330 | fix_utf8_stdin | 修复 | ?已完成（UTF-8 stdin/标题回退） | [202601180330_fix_utf8_stdin](2026-01/202601180330_fix_utf8_stdin/) |
+| 202601180440 | fix_session_cwd | 修复 | ?已完成（创建会话 cwd/自动修复） | [202601180440_fix_session_cwd](2026-01/202601180440_fix_session_cwd/) |
+| 202601180520 | default_skip_git_stream_fix | 修复 | ?已完成（默认跳过Git/流式刷新） | [202601180520_default_skip_git_stream_fix](2026-01/202601180520_default_skip_git_stream_fix/) |
+| 202601180610 | fix_cli_version_required | 修复 | ?已完成（补齐cli_version以支持resume） | [202601180610_fix_cli_version_required](2026-01/202601180610_fix_cli_version_required/) |
+| 202601180700 | filter_codex_json_events | 修复 | ?已完成（过滤JSON事件噪音） | [202601180700_filter_codex_json_events](2026-01/202601180700_filter_codex_json_events/) |
+| 202601181348 | trace_thinking | 功能 | ?已完成（运行追踪：命令/思考摘要） | [202601181348_trace_thinking](2026-01/202601181348_trace_thinking/) |
+| 202601181551 | trace_timeline | 功能 | ?已完成（Trace 时间线/回放） | [202601181551_trace_timeline](2026-01/202601181551_trace_timeline/) |
+| 202601181735 | app_server_approvals | 功能 | ?已完成（app-server 审批/流式） | [202601181735_app_server_approvals](2026-01/202601181735_app_server_approvals/) |
+| 202601182329 | model_effort_config_sync | 功能 | ?已完成（同步 config.toml） | [202601182329_model_effort_config_sync](2026-01/202601182329_model_effort_config_sync/) |
+| 202601182343 | workspace_button_menu | 功能 | ?已完成（目录按钮菜单） | [202601182343_workspace_button_menu](2026-01/202601182343_workspace_button_menu/) |
+| 202601190003 | session_cwd_autosync | 功能 | ?已完成（会话 cwd 自动使用） | [202601190003_session_cwd_autosync](2026-01/202601190003_session_cwd_autosync/) |
+| 202601190015 | workspace_recent_cwd | 功能 | ?已完成（最近 cwd 快速切换） | [202601190015_workspace_recent_cwd](2026-01/202601190015_workspace_recent_cwd/) |
+
+---
+
+## 按月归档
+
+### 2026-01
+
+- [202601172220_codex_gui_shell](2026-01/202601172220_codex_gui_shell/) - Codex GUI Shell：Bridge Server 骨架（health/ws/codex runner）
+- [202601172341_winui_ws_chat](2026-01/202601172341_winui_ws_chat/) - WinUI：导航 + Chat 页（WS 连接/发送/流式渲染/取消）
+- [202601180007_autostart_backend](2026-01/202601180007_autostart_backend/) - WinUI：自动拉起后端并默认自动连接（免手动配置）
+- [202601180040_fix_sidecar_packaging](2026-01/202601180040_fix_sidecar_packaging/) - 修复：MSIX 部署/打包包含后端 Sidecar（避免自动连接失败）
+- [202601180102_session_management](2026-01/202601180102_session_management/) - 会话管理：会话页（列表/创建/选择）+ Chat 绑定 sessionId（resume）
+- [202601180141_session_history_title](2026-01/202601180141_session_history_title/) - 会话体验：会话列表标题（首条 user 消息截断）+ Chat 自动加载历史
+- [202601180203_session_message_filter](2026-01/202601180203_session_message_filter/) - 修复：会话历史/标题过滤注入上下文，仅显示真实对话
+- [202601180234_fix_codex_path](2026-01/202601180234_fix_codex_path/) - 修复：Windows PATH 差异导致找不到 codex（自动定位 npm/cargo 等安装路径）
+- [202601180258_fix_run_no_reply](2026-01/202601180258_fix_run_no_reply/) - 修复：退出码非 0 不再误报完成；可勾选跳过 Git 检查在非 Git 目录运行
+- [202601180330_fix_utf8_stdin](2026-01/202601180330_fix_utf8_stdin/) - 修复：Windows stdin 非 UTF-8 导致 Codex 报错；WinUI 会话标题回退
+- [202601180440_fix_session_cwd](2026-01/202601180440_fix_session_cwd/) - 修复：会话创建缺少 cwd 导致 resume 失败；resume 时自动补写缺失 cwd
+- [202601180520_default_skip_git_stream_fix](2026-01/202601180520_default_skip_git_stream_fix/) - 修复：Chat 页默认跳过 Git 检查；流式消息可实时刷新显示
+- [202601180610_fix_cli_version_required](2026-01/202601180610_fix_cli_version_required/) - 修复：会话 session_meta 补齐 `cli_version`（Codex resume 必填）
+- [202601180700_filter_codex_json_events](2026-01/202601180700_filter_codex_json_events/) - 修复：Chat 不再显示 codex `--json` 控制事件，改为展示真实助手消息
+- [202601181348_trace_thinking](2026-01/202601181348_trace_thinking/) - 运行追踪：展示执行命令与思考摘要（可展开）
+- [202601181551_trace_timeline](2026-01/202601181551_trace_timeline/) - Trace 时间线：回放思考/命令，并按时间顺序展示
+- [202601181735_app_server_approvals](2026-01/202601181735_app_server_approvals/) - 运行链路：切换 app-server 支持审批请求与 delta 流式输出
+- [202601182329_model_effort_config_sync](2026-01/202601182329_model_effort_config_sync/) - WinUI：Model/Effort 与 `~/.codex/config.toml` 同步（读取 + 写回）
+- [202601182343_workspace_button_menu](2026-01/202601182343_workspace_button_menu/) - WinUI：Chat 页目录按钮（显示目录名/打开路径/重新选择）
+- [202601190003_session_cwd_autosync](2026-01/202601190003_session_cwd_autosync/) - WinUI：选择已有会话后自动使用 cwd（同步到 WorkingDirectory）
+- [202601190015_workspace_recent_cwd](2026-01/202601190015_workspace_recent_cwd/) - WinUI：Chat 页工作区菜单展示最近 5 条 cwd（快速切换）

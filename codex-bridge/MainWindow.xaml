@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="codex_bridge.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:codex_bridge"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
+    Title="Codex Bridge">
+
+    <Window.SystemBackdrop>
+        <MicaBackdrop />
+    </Window.SystemBackdrop>
+
+    <Grid>
+        <NavigationView
+            x:Name="NavView"
+            IsBackButtonVisible="Collapsed"
+            IsSettingsVisible="False"
+            ItemInvoked="NavView_ItemInvoked"
+            PaneDisplayMode="Left"
+            SelectionChanged="NavView_SelectionChanged">
+
+            <NavigationView.MenuItems>
+                <!-- 新聊天按钮 -->
+                <NavigationViewItem x:Name="NewChatItem" Tag="newchat" SelectsOnInvoked="False">
+                    <NavigationViewItem.Content>
+                        <TextBlock Text="新聊天" />
+                    </NavigationViewItem.Content>
+                    <NavigationViewItem.Icon>
+                        <SymbolIcon Symbol="Add" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+
+                <NavigationViewItemSeparator />
+
+                <!-- 最近对话标题 -->
+                <NavigationViewItemHeader Content="最近对话" />
+            </NavigationView.MenuItems>
+
+            <NavigationView.FooterMenuItems>
+                <NavigationViewItem Tag="sessions">
+                    <NavigationViewItem.Content>
+                        <TextBlock Text="全部会话" />
+                    </NavigationViewItem.Content>
+                    <NavigationViewItem.Icon>
+                        <SymbolIcon Symbol="Library" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+
+                <NavigationViewItem Tag="diff">
+                    <NavigationViewItem.Content>
+                        <TextBlock Text="Diff" />
+                    </NavigationViewItem.Content>
+                    <NavigationViewItem.Icon>
+                        <SymbolIcon Symbol="PreviewLink" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+
+                <NavigationViewItem Tag="settings">
+                    <NavigationViewItem.Content>
+                        <TextBlock Text="设置" />
+                    </NavigationViewItem.Content>
+                    <NavigationViewItem.Icon>
+                        <SymbolIcon Symbol="Setting" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+            </NavigationView.FooterMenuItems>
+
+            <Frame x:Name="ContentFrame" />
+        </NavigationView>
+    </Grid>
+</Window>

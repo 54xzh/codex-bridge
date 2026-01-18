@@ -1,0 +1,6 @@
+@codex_bridge_server_HostAddress = http://localhost:5195
+
+GET {{codex_bridge_server_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

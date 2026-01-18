@@ -1,0 +1,1319 @@
+// CodexSessionStore：读取/创建 Codex CLI 的本地 sessions（默认路径：%USERPROFILE%\\.codex\\sessions）。
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Text.Json.Nodes;
+
+namespace codex_bridge_server.Bridge;
+
+public sealed class CodexSessionStore
+{
+    private readonly ILogger<CodexSessionStore> _logger;
+    private readonly CodexCliInfo _cliInfo;
+
+    public CodexSessionStore(ILogger<CodexSessionStore> logger, CodexCliInfo cliInfo)
+    {
+        _logger = logger;
+        _cliInfo = cliInfo;
+    }
+
+    public IReadOnlyList<CodexSessionSummary> ListRecent(int limit)
+    {
+        limit = Math.Clamp(limit, 1, 200);
+
+        var sessionsRoot = GetSessionsRoot();
+        if (!Directory.Exists(sessionsRoot))
+        {
+            return Array.Empty<CodexSessionSummary>();
+        }
+
+        var fileInfos = new List<FileInfo>();
+        try
+        {
+            foreach (var path in Directory.EnumerateFiles(sessionsRoot, "*.jsonl", SearchOption.AllDirectories))
+            {
+                try
+                {
+                    fileInfos.Add(new FileInfo(path));
+                }
+                catch
+                {
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "扫描 sessions 目录失败: {SessionsRoot}", sessionsRoot);
+            return Array.Empty<CodexSessionSummary>();
+        }
+
+        fileInfos.Sort(static (a, b) => b.LastWriteTimeUtc.CompareTo(a.LastWriteTimeUtc));
+
+        var results = new List<CodexSessionSummary>(limit);
+        foreach (var fi in fileInfos)
+        {
+            if (results.Count >= limit)
+            {
+                break;
+            }
+
+            var summary = TryReadSessionMeta(fi.FullName);
+            if (summary is not null)
+            {
+                results.Add(summary);
+            }
+        }
+
+        return results;
+    }
+
+    public CodexSessionSummary Create(string? cwd)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var sessionId = Guid.NewGuid().ToString();
+        var resolvedCwd = NormalizeCwdOrThrow(cwd);
+        var cliVersion = _cliInfo.GetCliVersion();
+
+        var sessionsRoot = GetSessionsRoot();
+        var year = now.ToString("yyyy");
+        var month = now.ToString("MM");
+        var day = now.ToString("dd");
+
+        var dayDir = Path.Combine(sessionsRoot, year, month, day);
+        Directory.CreateDirectory(dayDir);
+
+        var fileTimestamp = now.ToString("yyyy-MM-dd'T'HH-mm-ss");
+        var fileName = $"rollout-{fileTimestamp}-{sessionId}.jsonl";
+        var filePath = Path.Combine(dayDir, fileName);
+
+        var metaLine = new CodexSessionMetaLine
+        {
+            Timestamp = now,
+            Type = "session_meta",
+            Payload = new CodexSessionMetaPayload
+            {
+                Id = sessionId,
+                Timestamp = now,
+                Cwd = resolvedCwd,
+                Originator = "codex_bridge",
+                CliVersion = cliVersion,
+                Instructions = string.Empty,
+            },
+        };
+
+        var json = JsonSerializer.Serialize(metaLine, BridgeJson.SerializerOptions);
+        using (var fs = new FileStream(filePath, FileMode.CreateNew, FileAccess.Write, FileShare.Read))
+        using (var writer = new StreamWriter(fs, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)))
+        {
+            writer.WriteLine(json);
+        }
+
+        return new CodexSessionSummary
+        {
+            Id = sessionId,
+            Title = BuildSessionTitle(firstUserMessageText: null, metaLine.Payload.Cwd, sessionId),
+            CreatedAt = now,
+            Cwd = metaLine.Payload.Cwd,
+            Originator = metaLine.Payload.Originator,
+            CliVersion = metaLine.Payload.CliVersion,
+        };
+    }
+
+    public void EnsureSessionCwd(string sessionId, string? cwdCandidate)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId))
+        {
+            return;
+        }
+
+        var sessionsRoot = GetSessionsRoot();
+        if (!Directory.Exists(sessionsRoot))
+        {
+            throw new InvalidOperationException($"未找到 Codex sessions 目录: {sessionsRoot}");
+        }
+
+        var sessionFilePath = TryFindSessionFilePath(sessionsRoot, sessionId);
+        if (sessionFilePath is null)
+        {
+            throw new InvalidOperationException($"未找到会话文件: {sessionId}");
+        }
+
+        var hasUtf8Bom = HasUtf8Bom(sessionFilePath);
+
+        List<string> lines;
+        try
+        {
+            lines = new List<string>(capacity: 256);
+            using var fs = new FileStream(sessionFilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            using var reader = new StreamReader(fs, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+
+            while (true)
+            {
+                var line = reader.ReadLine();
+                if (line is null)
+                {
+                    break;
+                }
+
+                lines.Add(line);
+            }
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException($"读取会话文件失败: {sessionId}", ex);
+        }
+
+        if (lines.Count == 0 || string.IsNullOrWhiteSpace(lines[0]))
+        {
+            throw new InvalidOperationException($"会话文件为空或损坏: {sessionId}");
+        }
+
+        JsonObject root;
+        try
+        {
+            root = JsonNode.Parse(lines[0]) as JsonObject
+                ?? throw new InvalidOperationException("会话元数据不是 JSON 对象");
+        }
+        catch (JsonException ex)
+        {
+            throw new InvalidOperationException("会话元数据不是有效 JSON", ex);
+        }
+
+        var needsRewrite = hasUtf8Bom;
+
+        var type = root["type"]?.GetValue<string>();
+        if (!string.Equals(type, "session_meta", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("会话文件首行不是 session_meta，无法自动修复 cwd");
+        }
+
+        if (root["payload"] is not JsonObject payload)
+        {
+            throw new InvalidOperationException("会话元数据缺少 payload，无法自动修复 cwd");
+        }
+
+        var existingCwd = payload["cwd"]?.GetValue<string>();
+        if (!string.IsNullOrWhiteSpace(existingCwd))
+        {
+            // keep
+        }
+        else
+        {
+            if (string.IsNullOrWhiteSpace(cwdCandidate))
+            {
+                throw new InvalidOperationException("该会话文件缺少 cwd，无法 resume。请在 Chat 页填写 workingDirectory，或重新创建会话。");
+            }
+
+            var resolvedCwd = NormalizeCwdOrThrow(cwdCandidate);
+            payload["cwd"] = resolvedCwd;
+            needsRewrite = true;
+        }
+
+        var existingCliVersion = payload["cli_version"]?.GetValue<string>();
+        if (string.IsNullOrWhiteSpace(existingCliVersion))
+        {
+            payload["cli_version"] = _cliInfo.GetCliVersion();
+            needsRewrite = true;
+        }
+
+        if (!needsRewrite)
+        {
+            return;
+        }
+
+        lines[0] = root.ToJsonString(BridgeJson.SerializerOptions);
+
+        var tmpPath = sessionFilePath + ".tmp";
+        try
+        {
+            using (var fs = new FileStream(tmpPath, FileMode.Create, FileAccess.Write, FileShare.None))
+            using (var writer = new StreamWriter(fs, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)))
+            {
+                foreach (var line in lines)
+                {
+                    writer.WriteLine(line);
+                }
+            }
+
+            File.Replace(tmpPath, sessionFilePath, destinationBackupFileName: null, ignoreMetadataErrors: true);
+        }
+        finally
+        {
+            try
+            {
+                if (File.Exists(tmpPath))
+                {
+                    File.Delete(tmpPath);
+                }
+            }
+            catch
+            {
+            }
+        }
+    }
+
+    public IReadOnlyList<CodexSessionMessage>? ReadMessages(string sessionId, int limit)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId))
+        {
+            return null;
+        }
+
+        limit = Math.Clamp(limit, 1, 2000);
+
+        var sessionsRoot = GetSessionsRoot();
+        if (!Directory.Exists(sessionsRoot))
+        {
+            return null;
+        }
+
+        var sessionFilePath = TryFindSessionFilePath(sessionsRoot, sessionId);
+        if (sessionFilePath is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            using var fs = new FileStream(sessionFilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            using var reader = new StreamReader(fs, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+
+            var queue = new Queue<CodexSessionMessage>(Math.Min(limit, 128));
+            var traceBuffer = new List<CodexSessionTraceEntry>(capacity: 16);
+            var traceByCallId = new Dictionary<string, CodexSessionTraceEntry>(StringComparer.Ordinal);
+            while (true)
+            {
+                var line = reader.ReadLine();
+                if (line is null)
+                {
+                    break;
+                }
+
+                if (!TryParseMessageLine(line, out var role, out var text, out var kind))
+                {
+                    if (TryParseAgentReasoningLine(line, out var reasoningText))
+                    {
+                        var entry = CreateReasoningTraceEntry(reasoningText);
+                        if (entry is not null)
+                        {
+                            traceBuffer.Add(entry);
+                        }
+
+                        continue;
+                    }
+
+                    if (TryParseReasoningSummaryLine(line, out var reasoningSummaries))
+                    {
+                        foreach (var summary in reasoningSummaries)
+                        {
+                            var entry = CreateReasoningTraceEntry(summary);
+                            if (entry is not null)
+                            {
+                                traceBuffer.Add(entry);
+                            }
+                        }
+
+                        continue;
+                    }
+
+                    if (TryParseFunctionCallLine(line, out var callId, out var tool, out var command))
+                    {
+                        var entry = new CodexSessionTraceEntry
+                        {
+                            Kind = "command",
+                            Tool = tool,
+                            Command = command,
+                            Status = "completed",
+                        };
+                        traceBuffer.Add(entry);
+
+                        if (!string.IsNullOrWhiteSpace(callId))
+                        {
+                            traceByCallId[callId] = entry;
+                        }
+
+                        continue;
+                    }
+
+                    if (TryParseFunctionCallOutputLine(line, out var outputCallId, out var outputText, out var exitCode))
+                    {
+                        if (!string.IsNullOrWhiteSpace(outputCallId)
+                            && traceByCallId.TryGetValue(outputCallId, out var entry))
+                        {
+                            entry.Output = string.IsNullOrWhiteSpace(outputText) ? null : outputText;
+                            entry.ExitCode = exitCode;
+                            entry.Status = "completed";
+                        }
+
+                        continue;
+                    }
+
+                    continue;
+                }
+
+                if (string.IsNullOrWhiteSpace(role) || string.IsNullOrWhiteSpace(text))
+                {
+                    continue;
+                }
+
+                if (string.Equals(role, "user", StringComparison.OrdinalIgnoreCase))
+                {
+                    var sanitized = SanitizeUserMessageText(text);
+                    if (string.IsNullOrWhiteSpace(sanitized))
+                    {
+                        continue;
+                    }
+
+                    text = sanitized;
+                }
+                else if (!string.Equals(role, "assistant", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (queue.Count >= limit)
+                {
+                    queue.Dequeue();
+                }
+
+                queue.Enqueue(new CodexSessionMessage
+                {
+                    Role = role,
+                    Text = text,
+                    Kind = kind,
+                    Trace = string.Equals(role, "assistant", StringComparison.OrdinalIgnoreCase) && traceBuffer.Count > 0
+                        ? traceBuffer.ToArray()
+                        : null,
+                });
+
+                if (string.Equals(role, "assistant", StringComparison.OrdinalIgnoreCase))
+                {
+                    traceBuffer.Clear();
+                    traceByCallId.Clear();
+                }
+            }
+
+            return queue.ToArray();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "读取会话消息失败: {SessionId}", sessionId);
+            return Array.Empty<CodexSessionMessage>();
+        }
+    }
+
+    private static CodexSessionTraceEntry? CreateReasoningTraceEntry(string text)
+    {
+        var trimmed = text?.Trim();
+        if (string.IsNullOrWhiteSpace(trimmed))
+        {
+            return null;
+        }
+
+        SplitReasoningTitle(trimmed, out var title, out var detail);
+
+        return new CodexSessionTraceEntry
+        {
+            Kind = "reasoning",
+            Title = title,
+            Text = detail,
+        };
+    }
+
+    private static void SplitReasoningTitle(string text, out string? title, out string detail)
+    {
+        title = null;
+        detail = text.Trim();
+
+        if (string.IsNullOrWhiteSpace(detail))
+        {
+            return;
+        }
+
+        if (detail.StartsWith("**", StringComparison.Ordinal))
+        {
+            var end = detail.IndexOf("**", startIndex: 2, StringComparison.Ordinal);
+            if (end > 2)
+            {
+                title = detail.Substring(2, end - 2).Trim();
+                var rest = detail.Substring(end + 2).Trim();
+                detail = string.IsNullOrWhiteSpace(rest) ? detail : rest;
+                if (string.IsNullOrWhiteSpace(title))
+                {
+                    title = null;
+                }
+
+                return;
+            }
+        }
+
+        using var reader = new StringReader(detail);
+        var firstLine = reader.ReadLine()?.Trim();
+        if (!string.IsNullOrWhiteSpace(firstLine))
+        {
+            title = firstLine.Length <= 80 ? firstLine : TruncateWithEllipsis(firstLine, 80);
+        }
+    }
+
+    private static bool TryParseAgentReasoningLine(string line, out string text)
+    {
+        text = string.Empty;
+
+        if (string.IsNullOrWhiteSpace(line))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(line);
+            var root = doc.RootElement;
+
+            if (!TryGetString(root, "type", out var type) || !string.Equals(type, "event_msg", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            if (!root.TryGetProperty("payload", out var payload) || payload.ValueKind != JsonValueKind.Object)
+            {
+                return false;
+            }
+
+            if (!TryGetString(payload, "type", out var payloadType) || !string.Equals(payloadType, "agent_reasoning", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            if (!TryGetString(payload, "text", out var parsed) || string.IsNullOrWhiteSpace(parsed))
+            {
+                return false;
+            }
+
+            text = parsed;
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryParseReasoningSummaryLine(string line, out IReadOnlyList<string> summaries)
+    {
+        summaries = Array.Empty<string>();
+
+        if (string.IsNullOrWhiteSpace(line))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(line);
+            var root = doc.RootElement;
+
+            if (!TryGetString(root, "type", out var type) || !string.Equals(type, "response_item", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            if (!root.TryGetProperty("payload", out var payload) || payload.ValueKind != JsonValueKind.Object)
+            {
+                return false;
+            }
+
+            if (!TryGetString(payload, "type", out var payloadType) || !string.Equals(payloadType, "reasoning", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            if (!payload.TryGetProperty("summary", out var summary) || summary.ValueKind != JsonValueKind.Array)
+            {
+                return false;
+            }
+
+            var list = new List<string>(capacity: 4);
+            foreach (var item in summary.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.Object)
+                {
+                    continue;
+                }
+
+                if (!TryGetString(item, "type", out var itemType) || !string.Equals(itemType, "summary_text", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                if (!TryGetString(item, "text", out var itemText) || string.IsNullOrWhiteSpace(itemText))
+                {
+                    continue;
+                }
+
+                list.Add(itemText);
+            }
+
+            if (list.Count == 0)
+            {
+                return false;
+            }
+
+            summaries = list;
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryParseFunctionCallLine(string line, out string? callId, out string tool, out string command)
+    {
+        callId = null;
+        tool = string.Empty;
+        command = string.Empty;
+
+        if (string.IsNullOrWhiteSpace(line))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(line);
+            var root = doc.RootElement;
+
+            if (!TryGetString(root, "type", out var type) || !string.Equals(type, "response_item", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            if (!root.TryGetProperty("payload", out var payload) || payload.ValueKind != JsonValueKind.Object)
+            {
+                return false;
+            }
+
+            if (!TryGetString(payload, "type", out var payloadType) || !string.Equals(payloadType, "function_call", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            if (!TryGetString(payload, "name", out tool) || string.IsNullOrWhiteSpace(tool))
+            {
+                return false;
+            }
+
+            _ = TryGetString(payload, "call_id", out var parsedCallId);
+            callId = string.IsNullOrWhiteSpace(parsedCallId) ? null : parsedCallId;
+
+            if (TryGetString(payload, "arguments", out var args) && !string.IsNullOrWhiteSpace(args))
+            {
+                command = BuildCommandLabel(tool, args);
+            }
+
+            if (string.IsNullOrWhiteSpace(command))
+            {
+                command = tool;
+            }
+
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static string BuildCommandLabel(string tool, string arguments)
+    {
+        if (string.Equals(tool, "shell_command", StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(arguments);
+                var root = doc.RootElement;
+                if (TryGetString(root, "command", out var cmd) && !string.IsNullOrWhiteSpace(cmd))
+                {
+                    return cmd;
+                }
+            }
+            catch (JsonException)
+            {
+            }
+
+            return "shell_command";
+        }
+
+        if (string.Equals(tool, "apply_patch", StringComparison.OrdinalIgnoreCase))
+        {
+            return "apply_patch";
+        }
+
+        return tool;
+    }
+
+    private static bool TryParseFunctionCallOutputLine(string line, out string? callId, out string? output, out int? exitCode)
+    {
+        callId = null;
+        output = null;
+        exitCode = null;
+
+        if (string.IsNullOrWhiteSpace(line))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(line);
+            var root = doc.RootElement;
+
+            if (!TryGetString(root, "type", out var type) || !string.Equals(type, "response_item", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            if (!root.TryGetProperty("payload", out var payload) || payload.ValueKind != JsonValueKind.Object)
+            {
+                return false;
+            }
+
+            if (!TryGetString(payload, "type", out var payloadType) || !string.Equals(payloadType, "function_call_output", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            if (!TryGetString(payload, "call_id", out var parsedCallId) || string.IsNullOrWhiteSpace(parsedCallId))
+            {
+                return false;
+            }
+
+            callId = parsedCallId;
+
+            _ = TryGetString(payload, "output", out var parsedOutput);
+            output = string.IsNullOrWhiteSpace(parsedOutput) ? null : parsedOutput;
+
+            if (!string.IsNullOrWhiteSpace(output))
+            {
+                exitCode = TryParseExitCode(output);
+            }
+
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static int? TryParseExitCode(string output)
+    {
+        using var reader = new StringReader(output);
+        var firstLine = reader.ReadLine();
+        if (string.IsNullOrWhiteSpace(firstLine))
+        {
+            return null;
+        }
+
+        const string prefix = "Exit code:";
+        if (!firstLine.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        var value = firstLine.Substring(prefix.Length).Trim();
+        if (int.TryParse(value, out var parsed))
+        {
+            return parsed;
+        }
+
+        return null;
+    }
+
+    private static CodexSessionSummary? TryReadSessionMeta(string filePath)
+    {
+        string? firstLine;
+        string? firstUserMessageText = null;
+        try
+        {
+            using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            using var reader = new StreamReader(fs, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+            firstLine = reader.ReadLine();
+
+            if (!string.IsNullOrWhiteSpace(firstLine))
+            {
+                firstUserMessageText = TryReadFirstUserMessageText(reader);
+            }
+        }
+        catch
+        {
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(firstLine))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(firstLine);
+            var root = doc.RootElement;
+
+            if (!TryGetString(root, "type", out var type) || !string.Equals(type, "session_meta", StringComparison.Ordinal))
+            {
+                return null;
+            }
+
+            if (!root.TryGetProperty("payload", out var payload) || payload.ValueKind != JsonValueKind.Object)
+            {
+                return null;
+            }
+
+            if (!TryGetString(payload, "id", out var id) || string.IsNullOrWhiteSpace(id))
+            {
+                return null;
+            }
+
+            DateTimeOffset createdAt = DateTimeOffset.MinValue;
+            if (TryGetString(payload, "timestamp", out var timestamp) && DateTimeOffset.TryParse(timestamp, out var parsed))
+            {
+                createdAt = parsed;
+            }
+
+            TryGetString(payload, "cwd", out var cwd);
+            TryGetString(payload, "originator", out var originator);
+            TryGetString(payload, "cli_version", out var cliVersion);
+
+            return new CodexSessionSummary
+            {
+                Id = id,
+                Title = BuildSessionTitle(firstUserMessageText, cwd, id),
+                CreatedAt = createdAt == DateTimeOffset.MinValue
+                    ? new DateTimeOffset(File.GetLastWriteTimeUtc(filePath))
+                    : createdAt,
+                Cwd = string.IsNullOrWhiteSpace(cwd) ? null : cwd,
+                Originator = string.IsNullOrWhiteSpace(originator) ? null : originator,
+                CliVersion = string.IsNullOrWhiteSpace(cliVersion) ? null : cliVersion,
+            };
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static bool TryGetString(JsonElement data, string propertyName, out string value)
+    {
+        value = string.Empty;
+
+        if (data.ValueKind != JsonValueKind.Object)
+        {
+            return false;
+        }
+
+        if (!data.TryGetProperty(propertyName, out var property))
+        {
+            return false;
+        }
+
+        if (property.ValueKind != JsonValueKind.String)
+        {
+            return false;
+        }
+
+        var text = property.GetString();
+        if (text is null)
+        {
+            return false;
+        }
+
+        value = text;
+        return true;
+    }
+
+    private static string GetSessionsRoot()
+    {
+        var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        return Path.Combine(userProfile, ".codex", "sessions");
+    }
+
+    private static bool HasUtf8Bom(string path)
+    {
+        try
+        {
+            using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            Span<byte> buf = stackalloc byte[3];
+            var read = fs.Read(buf);
+            return read >= 3 && buf[0] == 0xEF && buf[1] == 0xBB && buf[2] == 0xBF;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static string NormalizeCwdOrThrow(string? cwd)
+    {
+        var trimmed = cwd?.Trim();
+        if (string.IsNullOrWhiteSpace(trimmed))
+        {
+            throw new InvalidOperationException("cwd 不能为空");
+        }
+
+        string full;
+        try
+        {
+            full = Path.GetFullPath(trimmed);
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException($"cwd 路径无效: {trimmed}", ex);
+        }
+
+        if (!Directory.Exists(full))
+        {
+            throw new InvalidOperationException($"工作区目录不存在或不可访问: {full}");
+        }
+
+        return full;
+    }
+
+    private string? TryFindSessionFilePath(string sessionsRoot, string sessionId)
+    {
+        try
+        {
+            foreach (var path in Directory.EnumerateFiles(sessionsRoot, "*.jsonl", SearchOption.AllDirectories))
+            {
+                if (!Path.GetFileName(path).Contains(sessionId, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                return path;
+            }
+
+            foreach (var path in Directory.EnumerateFiles(sessionsRoot, "*.jsonl", SearchOption.AllDirectories))
+            {
+                try
+                {
+                    using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                    using var reader = new StreamReader(fs, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+                    var firstLine = reader.ReadLine();
+                    if (firstLine is null)
+                    {
+                        continue;
+                    }
+
+                    if (TryExtractSessionIdFromMetaLine(firstLine, out var extractedSessionId)
+                        && string.Equals(extractedSessionId, sessionId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return path;
+                    }
+                }
+                catch
+                {
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "查找会话文件失败: {SessionId}", sessionId);
+        }
+
+        return null;
+    }
+
+    private static bool TryExtractSessionIdFromMetaLine(string line, out string sessionId)
+    {
+        sessionId = string.Empty;
+
+        if (string.IsNullOrWhiteSpace(line))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(line);
+            var root = doc.RootElement;
+
+            if (!TryGetString(root, "type", out var type) || !string.Equals(type, "session_meta", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            if (!root.TryGetProperty("payload", out var payload) || payload.ValueKind != JsonValueKind.Object)
+            {
+                return false;
+            }
+
+            if (!TryGetString(payload, "id", out var id) || string.IsNullOrWhiteSpace(id))
+            {
+                return false;
+            }
+
+            sessionId = id;
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static string? TryReadFirstUserMessageText(StreamReader reader)
+    {
+        var maxLines = 500;
+
+        for (var i = 0; i < maxLines; i++)
+        {
+            var line = reader.ReadLine();
+            if (line is null)
+            {
+                return null;
+            }
+
+            if (!TryParseMessageLine(line, out var role, out var text, out _))
+            {
+                continue;
+            }
+
+            if (!string.Equals(role, "user", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                continue;
+            }
+
+            var sanitized = SanitizeUserMessageText(text);
+            if (string.IsNullOrWhiteSpace(sanitized))
+            {
+                continue;
+            }
+
+            return sanitized;
+        }
+
+        return null;
+    }
+
+    private static string BuildSessionTitle(string? firstUserMessageText, string? cwd, string id)
+    {
+        if (!string.IsNullOrWhiteSpace(firstUserMessageText))
+        {
+            var sanitized = SanitizeUserMessageText(firstUserMessageText);
+            var normalized = NormalizeSingleLine(sanitized ?? string.Empty);
+            if (!string.IsNullOrWhiteSpace(normalized))
+            {
+                return TruncateWithEllipsis(normalized, 50);
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(cwd))
+        {
+            return cwd.Trim();
+        }
+
+        return id;
+    }
+
+    private static string NormalizeSingleLine(string text)
+    {
+        var sb = new StringBuilder(text.Length);
+        var lastWasWhitespace = false;
+
+        foreach (var ch in text)
+        {
+            if (char.IsWhiteSpace(ch))
+            {
+                if (!lastWasWhitespace)
+                {
+                    sb.Append(' ');
+                    lastWasWhitespace = true;
+                }
+
+                continue;
+            }
+
+            sb.Append(ch);
+            lastWasWhitespace = false;
+        }
+
+        return sb.ToString().Trim();
+    }
+
+    private static string TruncateWithEllipsis(string text, int maxChars)
+    {
+        if (maxChars <= 0)
+        {
+            return string.Empty;
+        }
+
+        if (text.Length <= maxChars)
+        {
+            return text;
+        }
+
+        if (maxChars == 1)
+        {
+            return "…";
+        }
+
+        return string.Concat(text.AsSpan(0, maxChars - 1), "…");
+    }
+
+    private static string? SanitizeUserMessageText(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return null;
+        }
+
+        var extracted = TryExtractMyRequestForCodex(text);
+        var candidate = (extracted ?? text).Trim();
+
+        if (string.IsNullOrWhiteSpace(candidate))
+        {
+            return null;
+        }
+
+        if (LooksLikeHarnessBoilerplate(candidate))
+        {
+            return null;
+        }
+
+        return candidate;
+    }
+
+    private static string? TryExtractMyRequestForCodex(string text)
+    {
+        using var reader = new StringReader(text);
+
+        var sb = new StringBuilder();
+        var found = false;
+
+        while (true)
+        {
+            var line = reader.ReadLine();
+            if (line is null)
+            {
+                break;
+            }
+
+            if (!found)
+            {
+                if (IsMyRequestForCodexHeaderLine(line))
+                {
+                    found = true;
+                }
+
+                continue;
+            }
+
+            if (sb.Length > 0)
+            {
+                sb.AppendLine();
+            }
+
+            sb.Append(line);
+        }
+
+        if (!found)
+        {
+            return null;
+        }
+
+        var result = sb.ToString().Trim();
+        return string.IsNullOrWhiteSpace(result) ? null : result;
+    }
+
+    private static bool IsMyRequestForCodexHeaderLine(string line)
+    {
+        var trimmed = line.Trim();
+        if (!trimmed.StartsWith("##", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var title = trimmed.TrimStart('#').Trim();
+        if (!title.StartsWith("My request for Codex", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool LooksLikeHarnessBoilerplate(string text)
+    {
+        var normalized = text.Trim();
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return true;
+        }
+
+        var lower = normalized.ToLowerInvariant();
+
+        if (lower.Contains("agents.md instructions for", StringComparison.Ordinal)
+            || lower.Contains("<instructions>", StringComparison.Ordinal)
+            || lower.Contains("</instructions>", StringComparison.Ordinal)
+            || lower.Contains("<environment_context>", StringComparison.Ordinal)
+            || lower.Contains("</environment_context>", StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        if (lower.Contains("# context from my ide setup", StringComparison.Ordinal)
+            || lower.Contains("## active file:", StringComparison.Ordinal)
+            || lower.Contains("## open tabs:", StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool TryParseMessageLine(string line, out string role, out string text, out string? kind)
+    {
+        role = string.Empty;
+        text = string.Empty;
+        kind = null;
+
+        if (string.IsNullOrWhiteSpace(line))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(line);
+            var root = doc.RootElement;
+
+            if (!TryGetString(root, "type", out var lineType) || !string.Equals(lineType, "response_item", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            if (!root.TryGetProperty("payload", out var payload) || payload.ValueKind != JsonValueKind.Object)
+            {
+                return false;
+            }
+
+            if (!TryGetString(payload, "type", out var payloadType) || !string.Equals(payloadType, "message", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            if (!TryGetString(payload, "role", out var parsedRole) || string.IsNullOrWhiteSpace(parsedRole))
+            {
+                return false;
+            }
+
+            if (!payload.TryGetProperty("content", out var content))
+            {
+                return false;
+            }
+
+            var extracted = ExtractMessageText(content);
+            if (string.IsNullOrWhiteSpace(extracted))
+            {
+                return false;
+            }
+
+            role = parsedRole;
+            text = extracted;
+            kind = payloadType;
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static string ExtractMessageText(JsonElement content)
+    {
+        if (content.ValueKind == JsonValueKind.String)
+        {
+            return content.GetString() ?? string.Empty;
+        }
+
+        if (content.ValueKind == JsonValueKind.Object)
+        {
+            if (TryGetString(content, "text", out var single))
+            {
+                return single;
+            }
+
+            return string.Empty;
+        }
+
+        if (content.ValueKind != JsonValueKind.Array)
+        {
+            return string.Empty;
+        }
+
+        var sb = new StringBuilder();
+        foreach (var item in content.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.Object)
+            {
+                continue;
+            }
+
+            if (!TryGetString(item, "text", out var partText) || string.IsNullOrEmpty(partText))
+            {
+                continue;
+            }
+
+            if (sb.Length > 0)
+            {
+                sb.Append('\n');
+            }
+
+            sb.Append(partText);
+        }
+
+        return sb.ToString();
+    }
+
+    private sealed class CodexSessionMetaLine
+    {
+        [JsonPropertyName("timestamp")]
+        public DateTimeOffset Timestamp { get; init; }
+
+        [JsonPropertyName("type")]
+        public required string Type { get; init; }
+
+        [JsonPropertyName("payload")]
+        public required CodexSessionMetaPayload Payload { get; init; }
+    }
+
+    private sealed class CodexSessionMetaPayload
+    {
+        [JsonPropertyName("id")]
+        public required string Id { get; init; }
+
+        [JsonPropertyName("timestamp")]
+        public DateTimeOffset Timestamp { get; init; }
+
+        [JsonPropertyName("cwd")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? Cwd { get; init; }
+
+        [JsonPropertyName("originator")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? Originator { get; init; }
+
+        [JsonPropertyName("cli_version")]
+        public required string CliVersion { get; init; }
+
+        [JsonPropertyName("instructions")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? Instructions { get; init; }
+    }
+}
