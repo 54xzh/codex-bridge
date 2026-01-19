@@ -624,6 +624,7 @@ public sealed partial class ChatPage : Page
         }
 
         var message = new ChatMessageViewModel("assistant", "思考中…", runId);
+        message.IsTraceExpanded = true;
         _runToMessage[runId] = message;
         Messages.Add(message);
         SetSessionStatus($"运行中: {runId}");
@@ -789,6 +790,7 @@ public sealed partial class ChatPage : Page
         }
 
         message = new ChatMessageViewModel("assistant", "思考中…", runId);
+        message.IsTraceExpanded = true;
         _runToMessage[runId] = message;
         Messages.Add(message);
         return message;
@@ -813,6 +815,11 @@ public sealed partial class ChatPage : Page
         var exitCodeInfo = TryGetInt32(data, "exitCode", out var exitCode) ? $"(exitCode={exitCode})" : string.Empty;
         var prefix = string.IsNullOrWhiteSpace(exitCodeInfo) ? "完成" : $"完成{exitCodeInfo}";
         SetSessionStatus($"{prefix}: {runId}");
+
+        if (_runToMessage.TryGetValue(runId, out var message))
+        {
+            message.IsTraceExpanded = false;
+        }
     }
 
     private void HandleRunCanceled(JsonElement data)

@@ -12,6 +12,7 @@ public sealed class TraceEntryViewModel : INotifyPropertyChanged
     private int? _exitCode;
     private string? _output;
     private string _rawReasoningText = string.Empty;
+    private bool _isExpanded;
 
     private TraceEntryViewModel(string id, string kind)
     {
@@ -35,6 +36,21 @@ public sealed class TraceEntryViewModel : INotifyPropertyChanged
     public string? Tool { get; private set; }
 
     public string? Command { get; private set; }
+
+    public bool IsExpanded
+    {
+        get => _isExpanded;
+        set
+        {
+            if (_isExpanded == value)
+            {
+                return;
+            }
+
+            _isExpanded = value;
+            OnPropertyChanged();
+        }
+    }
 
     public string Status
     {

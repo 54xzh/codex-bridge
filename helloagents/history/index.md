@@ -38,6 +38,7 @@
 | 202601191159 | trace_no_gray_more_height | 修复 | ?已完成（Trace 去浅灰背景/提升高度） | [202601191159_trace_no_gray_more_height](2026-01/202601191159_trace_no_gray_more_height/) |
 | 202601191206 | trace_command_no_double_and_3lines | 修复 | ?已完成（命令条目无双层/三行截断） | [202601191206_trace_command_no_double_and_3lines](2026-01/202601191206_trace_command_no_double_and_3lines/) |
 | 202601191212 | trace_command_reasoning_visual_align | 修复 | ?已完成（命令/思考字体与间距对齐） | [202601191212_trace_command_reasoning_visual_align](2026-01/202601191212_trace_command_reasoning_visual_align/) |
+| 202601191231 | trace_auto_expand | 修复 | ?已完成（Trace 自动展开/折叠） | [202601191231_trace_auto_expand](2026-01/202601191231_trace_auto_expand/) |
 
 ---
 
@@ -75,3 +76,4 @@
 - [202601191159_trace_no_gray_more_height](2026-01/202601191159_trace_no_gray_more_height/) - WinUI：Trace 容器去浅灰背景（透明 + 描边）；多行内容更舒适高度
 - [202601191206_trace_command_no_double_and_3lines](2026-01/202601191206_trace_command_no_double_and_3lines/) - WinUI：命令条目与思考摘要一致以避免双层容器；命令最多三行截断
 - [202601191212_trace_command_reasoning_visual_align](2026-01/202601191212_trace_command_reasoning_visual_align/) - WinUI：命令执行与思考摘要条目字体与上下边距对齐
+- [202601191231_trace_auto_expand](2026-01/202601191231_trace_auto_expand/) - WinUI：Trace 执行中默认展开，最新思考摘要自动展开；完成后自动折叠

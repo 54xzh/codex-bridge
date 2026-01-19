@@ -11,6 +11,7 @@ namespace codex_bridge.ViewModels;
 public sealed class ChatMessageViewModel : INotifyPropertyChanged
 {
     private string _text;
+    private bool _isTraceExpanded;
     private readonly Dictionary<string, TraceEntryViewModel> _traceById = new(StringComparer.Ordinal);
 
     public ChatMessageViewModel(string role, string text, string? runId = null)
@@ -40,6 +41,21 @@ public sealed class ChatMessageViewModel : INotifyPropertyChanged
     public bool HasTrace => Trace.Count > 0;
 
     public string TraceHeader => $"执行过程（{TraceCount}）";
+
+    public bool IsTraceExpanded
+    {
+        get => _isTraceExpanded;
+        set
+        {
+            if (_isTraceExpanded == value)
+            {
+                return;
+            }
+
+            _isTraceExpanded = value;
+            OnPropertyChanged();
+        }
+    }
 
     public ObservableCollection<ChatImageViewModel> Images { get; } = new();
 
@@ -115,12 +131,14 @@ public sealed class ChatMessageViewModel : INotifyPropertyChanged
         if (_traceById.TryGetValue(id, out var existing) && existing.IsReasoning)
         {
             existing.SetReasoningText(text);
+            ExpandLatestReasoning(existing);
             return;
         }
 
         var entry = TraceEntryViewModel.CreateReasoning(id, text);
         _traceById[id] = entry;
         Trace.Add(entry);
+        ExpandLatestReasoning(entry);
     }
 
     public void AppendReasoningDelta(string id, string textDelta)
@@ -133,12 +151,35 @@ public sealed class ChatMessageViewModel : INotifyPropertyChanged
         if (_traceById.TryGetValue(id, out var existing) && existing.IsReasoning)
         {
             existing.AppendReasoningDelta(textDelta);
+            ExpandLatestReasoning(existing);
             return;
         }
 
         var entry = TraceEntryViewModel.CreateReasoning(id, textDelta);
         _traceById[id] = entry;
         Trace.Add(entry);
+        ExpandLatestReasoning(entry);
+    }
+
+    private void ExpandLatestReasoning(TraceEntryViewModel latest)
+    {
+        if (!latest.IsReasoning)
+        {
+            return;
+        }
+
+        foreach (var entry in Trace)
+        {
+            if (!entry.IsReasoning || ReferenceEquals(entry, latest))
+            {
+                continue;
+            }
+
+            entry.IsExpanded = false;
+        }
+
+        latest.IsExpanded = true;
+        IsTraceExpanded = true;
     }
 
     public void AppendCommandOutputDelta(string id, string delta)

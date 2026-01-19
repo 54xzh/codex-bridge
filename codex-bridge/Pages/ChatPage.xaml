@@ -120,7 +120,7 @@
                                 <!-- Trace 展开器 -->
                                 <Expander
                                     Header="{x:Bind TraceHeader, Mode=OneWay}"
-                                    IsExpanded="False"
+                                    IsExpanded="{x:Bind IsTraceExpanded, Mode=TwoWay}"
                                     Visibility="{x:Bind HasTrace, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}"
                                     HorizontalAlignment="Stretch"
                                     HorizontalContentAlignment="Stretch">
@@ -130,7 +130,7 @@
                                                 <StackPanel Spacing="6" Margin="0,0,0,8">
                                                     <!-- 命令类型 -->
                                                     <Expander
-                                                        IsExpanded="False"
+                                                        IsExpanded="{x:Bind IsExpanded, Mode=TwoWay}"
                                                         Visibility="{x:Bind IsCommand, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}"
                                                         HorizontalAlignment="Stretch"
                                                         HorizontalContentAlignment="Stretch">
@@ -171,7 +171,7 @@
 
                                                     <!-- 推理类型 -->
                                                     <Expander
-                                                        IsExpanded="False"
+                                                        IsExpanded="{x:Bind IsExpanded, Mode=TwoWay}"
                                                         Visibility="{x:Bind IsReasoning, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}"
                                                         HorizontalAlignment="Stretch"
                                                         HorizontalContentAlignment="Stretch">
