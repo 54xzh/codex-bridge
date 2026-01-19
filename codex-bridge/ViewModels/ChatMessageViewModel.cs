@@ -139,6 +139,8 @@ public sealed class ChatMessageViewModel : INotifyPropertyChanged
 
             if (!insideFence)
             {
+                line = EscapeInlineFenceMarkers(line);
+
                 if (IsBoxRuleLine(trimmed) && index + 1 < lines.Length && !string.IsNullOrWhiteSpace(lines[index + 1]))
                 {
                     builder.Append(line);
@@ -167,6 +169,31 @@ public sealed class ChatMessageViewModel : INotifyPropertyChanged
         }
 
         return builder.ToString();
+    }
+
+    private static string EscapeInlineFenceMarkers(string line)
+    {
+        if (string.IsNullOrEmpty(line))
+        {
+            return line;
+        }
+
+        // MarkdownTextBlock 的代码块/代码段解析在遇到“行内 ```...``` + 另一个 ```”时可能出现贪婪匹配，
+        // 导致中间整段文本被错误地当作代码渲染。这里将行内 fence marker 转义为字面量，避免误判。
+        var trimmed = line.AsSpan().TrimStart();
+        if (IsFenceMarker(trimmed))
+        {
+            return line;
+        }
+
+        if (!line.Contains("```", StringComparison.Ordinal) && !line.Contains("~~~", StringComparison.Ordinal))
+        {
+            return line;
+        }
+
+        return line
+            .Replace("```", "\\`\\`\\`", StringComparison.Ordinal)
+            .Replace("~~~", "\\~\\~\\~", StringComparison.Ordinal);
     }
 
     private static bool IsFenceMarker(ReadOnlySpan<char> trimmedLine) =>
