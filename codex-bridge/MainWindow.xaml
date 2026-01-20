@@ -14,6 +14,27 @@
     </Window.SystemBackdrop>
 
     <Grid Language="zh-Hans">
+        <VisualStateManager.VisualStateGroups>
+            <VisualStateGroup>
+                <VisualState x:Name="WideState">
+                    <VisualState.StateTriggers>
+                        <AdaptiveTrigger MinWindowWidth="700" />
+                    </VisualState.StateTriggers>
+                    <VisualState.Setters>
+                        <Setter Target="NavView.PaneDisplayMode" Value="Left" />
+                    </VisualState.Setters>
+                </VisualState>
+                <VisualState x:Name="NarrowState">
+                    <VisualState.StateTriggers>
+                        <AdaptiveTrigger MinWindowWidth="0" />
+                    </VisualState.StateTriggers>
+                    <VisualState.Setters>
+                        <Setter Target="NavView.PaneDisplayMode" Value="LeftCompact" />
+                    </VisualState.Setters>
+                </VisualState>
+            </VisualStateGroup>
+        </VisualStateManager.VisualStateGroups>
+
         <NavigationView
             x:Name="NavView"
             IsBackButtonVisible="Collapsed"

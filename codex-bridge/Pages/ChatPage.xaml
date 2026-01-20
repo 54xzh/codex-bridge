@@ -29,7 +29,35 @@
         </Style>
     </Page.Resources>
 
-    <Grid RowDefinitions="Auto,*,Auto,Auto" Padding="16" RowSpacing="12">
+    <Grid x:Name="RootGrid" RowDefinitions="Auto,*,Auto,Auto" Padding="16" RowSpacing="12">
+        <VisualStateManager.VisualStateGroups>
+            <VisualStateGroup>
+                <VisualState x:Name="WideButtonState">
+                    <VisualState.StateTriggers>
+                        <AdaptiveTrigger MinWindowWidth="900" />
+                    </VisualState.StateTriggers>
+                    <VisualState.Setters>
+                        <Setter Target="WorkspaceText.Visibility" Value="Visible" />
+                        <Setter Target="SandboxText.Visibility" Value="Visible" />
+                        <Setter Target="ApprovalText.Visibility" Value="Visible" />
+                        <Setter Target="ModelText.Visibility" Value="Visible" />
+                        <Setter Target="ThinkingText.Visibility" Value="Visible" />
+                    </VisualState.Setters>
+                </VisualState>
+                <VisualState x:Name="NarrowButtonState">
+                    <VisualState.StateTriggers>
+                        <AdaptiveTrigger MinWindowWidth="0" />
+                    </VisualState.StateTriggers>
+                    <VisualState.Setters>
+                        <Setter Target="WorkspaceText.Visibility" Value="Collapsed" />
+                        <Setter Target="SandboxText.Visibility" Value="Collapsed" />
+                        <Setter Target="ApprovalText.Visibility" Value="Collapsed" />
+                        <Setter Target="ModelText.Visibility" Value="Collapsed" />
+                        <Setter Target="ThinkingText.Visibility" Value="Collapsed" />
+                    </VisualState.Setters>
+                </VisualState>
+            </VisualStateGroup>
+        </VisualStateManager.VisualStateGroups>
 
         <!-- 顶部状态栏 -->
         <Border
