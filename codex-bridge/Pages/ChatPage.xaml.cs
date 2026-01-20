@@ -1,6 +1,7 @@
 // ChatPage：聊天页面，使用全局 ConnectionService。
 using CommunityToolkit.WinUI.UI.Controls;
 using codex_bridge.Bridge;
+using codex_bridge.Markdown;
 using codex_bridge.Models;
 using codex_bridge.ViewModels;
 using Microsoft.UI;
@@ -36,6 +37,7 @@ namespace codex_bridge.Pages;
 public sealed partial class ChatPage : Page
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private static readonly object FilePathRendererMarker = new();
     private const int MaxPendingImages = 4;
     private const int MaxImageBytes = 10 * 1024 * 1024;
     private const double AutoScrollBottomTolerance = 24;
@@ -213,6 +215,30 @@ public sealed partial class ChatPage : Page
         }
     }
 
+    private void MarkdownTextBlock_Loaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is not MarkdownTextBlock markdown)
+        {
+            return;
+        }
+
+        if (ReferenceEquals(markdown.Tag, FilePathRendererMarker))
+        {
+            return;
+        }
+
+        markdown.Tag = FilePathRendererMarker;
+        markdown.SetRenderer<FilePathMarkdownRenderer>();
+
+        // SetRenderer 不会自动刷新已渲染内容；这里通过轻量重置 Text 触发重新渲染。
+        var currentText = markdown.Text;
+        if (!string.IsNullOrEmpty(currentText))
+        {
+            markdown.Text = string.Empty;
+            markdown.Text = currentText;
+        }
+    }
+
     private async void MarkdownTextBlock_LinkClicked(object sender, LinkClickedEventArgs e)
     {
         if (string.IsNullOrWhiteSpace(e.Link) || !Uri.TryCreate(e.Link, UriKind.Absolute, out var uri))
@@ -299,7 +325,8 @@ public sealed partial class ChatPage : Page
         var container = new Border
         {
             Background = background,
-            BorderThickness = new Thickness(0),
+            BorderBrush = borderBrush,
+            BorderThickness = borderThickness,
             Padding = padding,
             CornerRadius = new CornerRadius(10),
             Margin = new Thickness(0, 8, 0, 8),

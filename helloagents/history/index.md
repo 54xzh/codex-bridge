@@ -53,6 +53,10 @@
 | 202601200039 | chat_markdown_rendering | 功能 | ✅已完成（Chat Markdown 渲染） | [202601200039_chat_markdown_rendering](2026-01/202601200039_chat_markdown_rendering/) |
 | 202601200110 | markdown_codeblock_style | 功能 | ✅已完成（Markdown 代码块样式优化） | [202601200110_markdown_codeblock_style](2026-01/202601200110_markdown_codeblock_style/) |
 | 202601200237 | fix_markdown_list_rendering | 修复 | ✅已完成（Markdown 列表渲染兼容） | [202601200237_fix_markdown_list_rendering](2026-01/202601200237_fix_markdown_list_rendering/) |
+| 202601201835 | inline_code_open_file | 功能 | ✅已完成（行内代码文件路径打开） | [202601201835_inline_code_open_file](2026-01/202601201835_inline_code_open_file/) |
+| 202601202120 | markdown_code_ui | 变更 | ✅已完成（Markdown 代码样式与文件交互） | [202601202120_markdown_code_ui](2026-01/202601202120_markdown_code_ui/) |
+| 202601202330 | markdown_inline_code_baseline_fix | 修复 | ✅已完成（Markdown 行内代码对齐与可点击稳定性修复） | [202601202330_markdown_inline_code_baseline_fix](2026-01/202601202330_markdown_inline_code_baseline_fix/) |
+| 202601202354 | markdown_inline_code_list_baseline_tune | 修复 | ✅已完成（Markdown 行内代码/列表对齐微调） | [202601202354_markdown_inline_code_list_baseline_tune](2026-01/202601202354_markdown_inline_code_list_baseline_tune/) |
 
 ---
 
@@ -105,3 +109,7 @@
 - [202601200039_chat_markdown_rendering](2026-01/202601200039_chat_markdown_rendering/) - WinUI：Chat 回复支持 Markdown 渲染
 - [202601200110_markdown_codeblock_style](2026-01/202601200110_markdown_codeblock_style/) - WinUI：Markdown 代码块浅色背景/黑字/圆角样式
 - [202601200237_fix_markdown_list_rendering](2026-01/202601200237_fix_markdown_list_rendering/) - 修复：Markdown 无序列表渲染兼容（缩进列表/标签行后列表）
+- [202601201835_inline_code_open_file](2026-01/202601201835_inline_code_open_file/) - WinUI：Markdown 行内代码文件路径显示文件名并支持点击打开
+- [202601202120_markdown_code_ui](2026-01/202601202120_markdown_code_ui/) - WinUI：修复可打开文件名行内代码样式（浅蓝背景/圆角、无描边、与行内文字更对齐），悬浮提示保留完整路径
+- [202601202330_markdown_inline_code_baseline_fix](2026-01/202601202330_markdown_inline_code_baseline_fix/) - 修复：Markdown 行内代码在部分上下文下样式回退/不可点击打开 + 基线对齐优化
+- [202601202354_markdown_inline_code_list_baseline_tune](2026-01/202601202354_markdown_inline_code_list_baseline_tune/) - 修复：Markdown 行内代码偏移按字号缩放 + 列表 bullet/首行对齐微调

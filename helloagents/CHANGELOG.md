@@ -21,6 +21,7 @@
 - 新增图片能力：Chat 页支持选择并发送图片（`chat.send(images)`），Bridge Server 转发到 app-server 并在会话回放接口返回 `images`（data URL），WinUI 可解码显示 session 中的 base64 图片
 - 新增聊天输入增强：输入框支持粘贴图片；Enter 发送、Shift+Enter 换行
 - 新增 WinUI：Chat 回复支持 Markdown 渲染（代码块/列表/链接）
+- 新增 WinUI：Markdown 行内代码若为文件路径（绝对/相对、`a/`/`b/` 前缀；基于 cwd/仓库根目录解析；支持常见括号/引号包裹与尾随标点清理）则仅显示文件名并支持点击打开文件/目录（文件名唯一匹配时也支持；渲染时无法解析但形似路径的内容会在点击时重试解析）
 - 新增上下文用量展示：Chat 页右下角按钮显示上下文用量百分比（无数据为 `-%`），点击后以 Flyout 菜单展示后端连接状态 + `/status` 摘要（5h/周限额进度条；重置时间 `MM-dd HH:mm`；缺失项显示“不可用”）
 - 新增仓库入口文档 `README.md`：项目简介、快速开始、配置与安全、文档索引（指向 `helloagents/wiki`）
 
@@ -34,6 +35,7 @@
 - 对齐 WinUI Chat 页 Trace 字体与间距：命令执行与思考摘要标题/内容的字体与上下边距一致
 - 优化上下文用量菜单排版：Flyout 加宽并调整行距/字间距，限额改为进度条可视化
 - 优化 WinUI Markdown 代码块样式：浅色背景/黑色字体/圆角，提高对比度
+- 优化 WinUI Markdown 行内代码样式：可打开文件路径高亮（浅蓝背景/蓝字、圆角、无描边），并修正 `InlineUIContainer` 基线对齐以减少行内“漂移”（含列表场景对齐优化）
 
 ### 修复
 - 修复 MSIX 调试部署/打包场景下未包含 `bridge-server/` 导致自动启动失败
@@ -55,3 +57,5 @@
 - 修复图片发送失败提示不明确/部分格式不兼容：WinUI 将剪贴板/BMP 图片转为 PNG（避免 `image/bmp` 导致失败），并在 `turn.status=failed` 时透出 `turn.error.message`
 - 修复回复未完整输出正文时重启后会话回放丢失记录：服务端兼容 `event_msg.agent_message` 并在末尾 trace 兜底刷出占位 assistant 消息；WinUI 历史加载不再过滤 trace-only 消息
 - 修复 WinUI Markdown 渲染时，带缩进的无序列表（如 `  - item`）可能无法被识别为列表的问题
+- 修复 WinUI Markdown 行内代码在部分上下文下回退渲染导致样式不一致、文件路径不可点击打开的问题
+- 修复 WinUI Markdown 无序/有序列表中 bullet 与首行内容垂直对齐偏差导致的观感“漂移”

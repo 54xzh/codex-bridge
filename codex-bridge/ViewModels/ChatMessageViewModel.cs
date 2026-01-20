@@ -313,9 +313,96 @@ public sealed class ChatMessageViewModel : INotifyPropertyChanged
             return text;
         }
 
-        // Escape underscores that could be interpreted as emphasis markers.
-        // This prevents _text_ from becoming italic, while preserving *text* for italic.
-        return text.Replace("_", @"\_");
+        // Escape underscores that could be interpreted as emphasis markers, but keep them as-is in code spans/blocks.
+        // This prevents _text_ from becoming italic, while allowing file paths like `_inline_code_open_file/task.md`.
+        if (!text.Contains('_', StringComparison.Ordinal))
+        {
+            return text;
+        }
+
+        var normalized = text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
+        var lines = normalized.Split('\n');
+        var builder = new StringBuilder(normalized.Length + 16);
+        var insideFence = false;
+
+        for (var index = 0; index < lines.Length; index++)
+        {
+            var line = lines[index];
+            var trimmed = line.AsSpan().TrimStart();
+
+            if (IsFenceMarker(trimmed))
+            {
+                insideFence = !insideFence;
+                builder.Append(line);
+            }
+            else if (insideFence || IsIndentedCodeLine(line))
+            {
+                builder.Append(line);
+            }
+            else
+            {
+                builder.Append(EscapeUnderscoresOutsideInlineCode(line));
+            }
+
+            if (index < lines.Length - 1)
+            {
+                builder.Append('\n');
+            }
+        }
+
+        return builder.ToString();
+    }
+
+    private static bool IsIndentedCodeLine(string line) =>
+        line.Length >= 1 && (line[0] == '\t' || (line.Length >= 4 && line.StartsWith("    ", StringComparison.Ordinal)));
+
+    private static string EscapeUnderscoresOutsideInlineCode(string line)
+    {
+        if (string.IsNullOrEmpty(line) || !line.Contains('_', StringComparison.Ordinal))
+        {
+            return line;
+        }
+
+        var builder = new StringBuilder(line.Length + 8);
+        var inlineCodeDelimiterLength = 0;
+
+        for (var index = 0; index < line.Length; index++)
+        {
+            var ch = line[index];
+            if (ch == '`')
+            {
+                var runLength = 1;
+                while (index + runLength < line.Length && line[index + runLength] == '`')
+                {
+                    runLength++;
+                }
+
+                builder.Append(line, index, runLength);
+
+                if (inlineCodeDelimiterLength == 0)
+                {
+                    inlineCodeDelimiterLength = runLength;
+                }
+                else if (runLength == inlineCodeDelimiterLength)
+                {
+                    inlineCodeDelimiterLength = 0;
+                }
+
+                index += runLength - 1;
+                continue;
+            }
+
+            if (inlineCodeDelimiterLength == 0 && ch == '_')
+            {
+                builder.Append("\\_");
+            }
+            else
+            {
+                builder.Append(ch);
+            }
+        }
+
+        return builder.ToString();
     }
 
     public bool ShowMarkdown => IsAssistant && HasText && RenderMarkdown;
