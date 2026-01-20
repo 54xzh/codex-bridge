@@ -59,3 +59,4 @@
 - 修复 WinUI Markdown 渲染时，带缩进的无序列表（如 `  - item`）可能无法被识别为列表的问题
 - 修复 WinUI Markdown 行内代码在部分上下文下回退渲染导致样式不一致、文件路径不可点击打开的问题
 - 修复 WinUI Markdown 无序/有序列表中 bullet 与首行内容垂直对齐偏差导致的观感“漂移”
+- 修复 WinUI Markdown 无序列表中行内代码渲染向下偏移的问题

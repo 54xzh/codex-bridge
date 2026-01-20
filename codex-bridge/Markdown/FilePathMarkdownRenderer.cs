@@ -18,7 +18,7 @@ namespace codex_bridge.Markdown;
 
 public sealed class FilePathMarkdownRenderer : MarkdownRenderer
 {
-    private const double InlineCodeBaselineOffsetFactor = 0.34;
+    private const double InlineCodeBaselineOffset = 4d;
 
     public FilePathMarkdownRenderer(
         MarkdownDocument document,
@@ -118,8 +118,7 @@ public sealed class FilePathMarkdownRenderer : MarkdownRenderer
         };
 
         // Aligns content in InlineUI, see https://social.msdn.microsoft.com/Forums/silverlight/en-US/48b5e91e-efc5-4768-8eaf-f897849fcf0b/richtextbox-inlineuicontainer-vertical-alignment-issue?forum=silverlightarchieve
-        var baselineOffset = Math.Clamp(Math.Round(FontSize * InlineCodeBaselineOffsetFactor), 4d, 6d);
-        border.RenderTransform = new TranslateTransform { Y = baselineOffset };
+        border.RenderTransform = new TranslateTransform { Y = InlineCodeBaselineOffset };
 
         if (isFileCandidate && !string.IsNullOrWhiteSpace(tooltip))
         {
@@ -148,8 +147,17 @@ public sealed class FilePathMarkdownRenderer : MarkdownRenderer
 
     protected override void RenderListElement(ListBlock element, IRenderContext context)
     {
+        if (context is not UIElementCollectionRenderContext localContext)
+        {
+            base.RenderListElement(element, context);
+            return;
+        }
+
         var previousParagraphMargin = ParagraphMargin;
         ParagraphMargin = new Thickness(previousParagraphMargin.Left, 0, previousParagraphMargin.Right, previousParagraphMargin.Bottom);
+
+        var elements = localContext.BlockUIElementCollection;
+        var startingElementIndex = elements.Count;
 
         try
         {
@@ -159,6 +167,66 @@ public sealed class FilePathMarkdownRenderer : MarkdownRenderer
         {
             ParagraphMargin = previousParagraphMargin;
         }
+
+        for (var index = startingElementIndex; index < elements.Count; index++)
+        {
+            if (elements[index] is Grid grid)
+            {
+                ApplyInlineCodeBulletAlignment(grid, element);
+            }
+        }
+    }
+
+    private static void ApplyInlineCodeBulletAlignment(Grid grid, ListBlock list)
+    {
+        foreach (var child in grid.Children)
+        {
+            if (child is not TextBlock bullet)
+            {
+                continue;
+            }
+
+            if (Grid.GetColumn(bullet) != 0)
+            {
+                continue;
+            }
+
+            var rowIndex = Grid.GetRow(bullet);
+            if (rowIndex < 0 || rowIndex >= list.Items.Count)
+            {
+                continue;
+            }
+
+            bullet.RenderTransform = ListItemStartsWithCodeInline(list.Items[rowIndex])
+                ? new TranslateTransform { Y = InlineCodeBaselineOffset }
+                : null;
+        }
+    }
+
+    private static bool ListItemStartsWithCodeInline(ListItemBlock listItem)
+    {
+        if (listItem.Blocks is null || listItem.Blocks.Count == 0)
+        {
+            return false;
+        }
+
+        if (listItem.Blocks[0] is not ParagraphBlock { Inlines: { } inlines } || inlines.Count == 0)
+        {
+            return false;
+        }
+
+        for (var index = 0; index < inlines.Count; index++)
+        {
+            var inline = inlines[index];
+            if (inline is TextRunInline textRun && string.IsNullOrWhiteSpace(textRun.Text))
+            {
+                continue;
+            }
+
+            return inline is CodeInline;
+        }
+
+        return false;
     }
 }
 

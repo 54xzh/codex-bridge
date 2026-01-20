@@ -6,7 +6,7 @@
 ## 模块概述
 - **职责:** UI 渲染、用户输入、与 Bridge Server 通信、diff 展示与应用控制
 - **状态:** 开发中
-- **最后更新:** 2026-01-20
+- **最后更新:** 2026-01-21
 
 ## 规范
 
@@ -29,7 +29,7 @@ Chat 输入框支持粘贴图片：当剪贴板包含图片（Bitmap/文件/`dat
 兼容性：为避免 `image/bmp` 导致 Codex 拒绝，剪贴板图片与 BMP 文件会自动转为 PNG 再发送。
 快捷键：Enter 发送；Shift+Enter 换行。
 Chat 回复正文支持 Markdown 渲染（使用 `CommunityToolkit.WinUI.UI.Controls.Markdown` 的 `MarkdownTextBlock`；支持代码块/列表/链接）；代码块使用浅色背景 + 黑字 + 描边 + 圆角以提升对比度；行内代码使用浅底圆角（无轮廓描边），其中可打开的文件路径行内代码使用浅蓝背景 + 蓝色文字（无轮廓描边）；流式阶段先以纯文本渲染，完成后切换为 Markdown；链接点击仅允许打开 http/https 外链。
-实现细节：为解决 `InlineUIContainer` 的基线对齐问题，行内代码的 `Border` 会按字号做轻量下移（约 4-6px），以尽量与行内普通文字对齐；在无序/有序列表中渲染时会临时移除 `ParagraphMargin.Top`，避免 bullet 与首行内容垂直不齐导致的观感“漂移”。
+实现细节：为解决 `InlineUIContainer` 的基线对齐问题，行内代码的 `Border` 会做轻量下移（约 4px），以尽量与行内普通文字对齐；在无序/有序列表中渲染时会临时移除 `ParagraphMargin.Top`，并在“列表项以行内代码开头”的场景同步下移 bullet，避免列表项出现垂直“漂移”。
 已知限制：当行内代码位于 Markdown 链接文本内部（例如 [`SomeCode`](https://example.com)）时会回退为普通文本渲染（Toolkit 限制），因此不会显示行内代码背景/圆角，也不会启用“点击打开文件”。
 为便于在对话中快速跳转到工程文件：当 Markdown 行内代码内容可解析为文件路径（支持绝对路径、相对路径、`a/`/`b/` diff 前缀；支持常见括号/引号包裹与尾随标点清理；相对路径优先基于当前工作区 `cwd`/会话 `cwd`，必要时回退到 Git 仓库根目录）且对应文件/目录存在时，UI 会仅显示文件名（basename），并支持点击打开该文件（目录则在资源管理器中打开）；若行内代码仅为文件名（如 `ChatPage.xaml.cs`），在工作区/仓库内唯一匹配时也可点击打开；完整路径会保留在悬浮提示中；当渲染时无法解析但内容“看起来像路径”时，仍会显示为文件名样式，点击时会再次尝试解析并打开。
 为提升兼容性，客户端会对 Markdown 做轻量规范化：当检测到列表行存在 1-3 个前导空格（例如 `  - item`）时会去缩进，并在“标签行(:/：) 后紧跟列表”时自动补空行；当检测到只包含 `─` 的分隔线（如 `────`）且后续紧跟文本行时，会自动补一个空行避免被合并；并将普通段落的单换行按“硬换行”处理（尽量做到 `\n` 就换行，避开 fenced code block 与缩进代码块）；另外会将行内出现的 fence marker（```/~~~）转义为字面量，避免 `MarkdownTextBlock` 在同一段落里出现多个 ``` 时发生贪婪匹配导致整段误判为代码。
@@ -105,3 +105,4 @@ Chat 页可展示运行追踪信息（Trace）：包括思考摘要与执行命�
 - [202601202120_markdown_code_ui](../../history/2026-01/202601202120_markdown_code_ui/) - WinUI：Markdown 代码样式与文件交互（浅蓝文件高亮/圆角、无描边、对齐优化）
 - [202601202330_markdown_inline_code_baseline_fix](../../history/2026-01/202601202330_markdown_inline_code_baseline_fix/) - WinUI：Markdown 行内代码对齐与可点击稳定性修复
 - [202601202354_markdown_inline_code_list_baseline_tune](../../history/2026-01/202601202354_markdown_inline_code_list_baseline_tune/) - WinUI：Markdown 行内代码/列表对齐微调
+- [202601210008_markdown_inline_code_list_offset_fix](../../history/2026-01/202601210008_markdown_inline_code_list_offset_fix/) - 修复：Markdown 无序列表行内代码垂直对齐偏移
