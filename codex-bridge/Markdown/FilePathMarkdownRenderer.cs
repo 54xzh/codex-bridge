@@ -19,6 +19,70 @@ namespace codex_bridge.Markdown;
 public sealed class FilePathMarkdownRenderer : MarkdownRenderer
 {
     private const double InlineCodeBaselineOffset = 4d;
+    private const string InlineCodePathIconGlyphMarkdown = "\uE8A5"; // Document
+    private const string InlineCodePathIconGlyphCode = "\uE943"; // Code
+    private const string InlineCodePathIconGlyphFolder = "\uE8B7"; // Folder
+    private const string InlineCodePathIconGlyphGeneric = "\uE7C3"; // Page
+
+    private static readonly HashSet<string> InlineCodeCodeFileExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".c",
+        ".cc",
+        ".cpp",
+        ".cs",
+        ".csproj",
+        ".css",
+        ".cxx",
+        ".dart",
+        ".fs",
+        ".fsi",
+        ".fsproj",
+        ".fsx",
+        ".go",
+        ".h",
+        ".hh",
+        ".hpp",
+        ".htm",
+        ".html",
+        ".hxx",
+        ".ini",
+        ".java",
+        ".js",
+        ".json",
+        ".jsx",
+        ".kt",
+        ".kts",
+        ".less",
+        ".lua",
+        ".m",
+        ".mm",
+        ".mjs",
+        ".nuspec",
+        ".php",
+        ".props",
+        ".ps1",
+        ".psd1",
+        ".psm1",
+        ".py",
+        ".rb",
+        ".rs",
+        ".scss",
+        ".sh",
+        ".sln",
+        ".slnx",
+        ".sql",
+        ".swift",
+        ".targets",
+        ".toml",
+        ".ts",
+        ".tsx",
+        ".vb",
+        ".vbproj",
+        ".xaml",
+        ".xml",
+        ".yaml",
+        ".yml",
+    };
 
     public FilePathMarkdownRenderer(
         MarkdownDocument document,
@@ -67,6 +131,29 @@ public sealed class FilePathMarkdownRenderer : MarkdownRenderer
         // This happens when using inline code blocks like [`SomeCode`](https://www.foo.bar).
         if (localContext.Parent is Hyperlink)
         {
+            if (isFileCandidate)
+            {
+                var iconGlyph = GetInlineCodePathIconGlyph(raw, hasResolvedPath, resolvedPath, displayName);
+                var iconRun = new Run
+                {
+                    Text = iconGlyph + " ",
+                    FontFamily = new FontFamily("Segoe Fluent Icons"),
+                    Foreground = foreground,
+                };
+
+                if (localContext.WithinItalics)
+                {
+                    iconRun.FontStyle = Windows.UI.Text.FontStyle.Italic;
+                }
+
+                if (localContext.WithinBold)
+                {
+                    iconRun.FontWeight = Microsoft.UI.Text.FontWeights.Bold;
+                }
+
+                inlineCollection.Add(iconRun);
+            }
+
             Run run = new Run
             {
                 Text = text,
@@ -104,6 +191,32 @@ public sealed class FilePathMarkdownRenderer : MarkdownRenderer
             textBlock.FontWeight = Microsoft.UI.Text.FontWeights.Bold;
         }
 
+        UIElement content = textBlock;
+        if (isFileCandidate)
+        {
+            var iconGlyph = GetInlineCodePathIconGlyph(raw, hasResolvedPath, resolvedPath, displayName);
+            var icon = new FontIcon
+            {
+                Glyph = iconGlyph,
+                Foreground = foreground,
+                FontSize = Math.Max(10, textBlock.FontSize - 1),
+                Margin = new Thickness(0, 0, 4, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                IsHitTestVisible = false,
+            };
+
+            var panel = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 0,
+                VerticalAlignment = VerticalAlignment.Center,
+                IsHitTestVisible = false,
+            };
+            panel.Children.Add(icon);
+            panel.Children.Add(textBlock);
+            content = panel;
+        }
+
         var border = new Border
         {
             Background = background,
@@ -112,7 +225,7 @@ public sealed class FilePathMarkdownRenderer : MarkdownRenderer
             Padding = padding,
             Margin = margin,
             CornerRadius = new CornerRadius(4),
-            Child = textBlock,
+            Child = content,
             IsTapEnabled = isFileCandidate,
             IsHitTestVisible = isFileCandidate,
         };
@@ -143,6 +256,65 @@ public sealed class FilePathMarkdownRenderer : MarkdownRenderer
         }
 
         inlineCollection.Add(new InlineUIContainer { Child = border });
+    }
+
+    private static string GetInlineCodePathIconGlyph(string raw, bool hasResolvedPath, string resolvedPath, string displayName)
+    {
+        if (hasResolvedPath && !string.IsNullOrWhiteSpace(resolvedPath) && Directory.Exists(resolvedPath))
+        {
+            return InlineCodePathIconGlyphFolder;
+        }
+
+        var extension = string.Empty;
+        if (hasResolvedPath && !string.IsNullOrWhiteSpace(resolvedPath))
+        {
+            extension = Path.GetExtension(resolvedPath);
+        }
+
+        if (string.IsNullOrWhiteSpace(extension) && !string.IsNullOrWhiteSpace(displayName))
+        {
+            extension = Path.GetExtension(displayName);
+        }
+
+        if (string.Equals(extension, ".md", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(extension, ".markdown", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(extension, ".mdx", StringComparison.OrdinalIgnoreCase))
+        {
+            return InlineCodePathIconGlyphMarkdown;
+        }
+
+        if (!string.IsNullOrWhiteSpace(extension) && InlineCodeCodeFileExtensions.Contains(extension))
+        {
+            return InlineCodePathIconGlyphCode;
+        }
+
+        var trimmed = TrimInlineCodePathForIcon(raw);
+        if (trimmed.EndsWith("/", StringComparison.Ordinal) || trimmed.EndsWith("\\", StringComparison.Ordinal))
+        {
+            return InlineCodePathIconGlyphFolder;
+        }
+
+        if (!hasResolvedPath
+            && (trimmed.Contains("/", StringComparison.Ordinal) || trimmed.Contains("\\", StringComparison.Ordinal))
+            && string.IsNullOrWhiteSpace(Path.GetExtension(trimmed.TrimEnd('/', '\\'))))
+        {
+            return InlineCodePathIconGlyphFolder;
+        }
+
+        return InlineCodePathIconGlyphGeneric;
+    }
+
+    private static string TrimInlineCodePathForIcon(string raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return string.Empty;
+        }
+
+        var trimmed = raw.Trim();
+        trimmed = trimmed.Trim('"', '\'', '(', ')', '[', ']', '{', '}', '<', '>');
+        trimmed = trimmed.TrimEnd('.', ',', ';', ':', '!', '?');
+        return trimmed.Trim();
     }
 
     protected override void RenderListElement(ListBlock element, IRenderContext context)
