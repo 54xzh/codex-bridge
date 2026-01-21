@@ -4,6 +4,7 @@ using CommunityToolkit.Common.Parsers.Markdown.Blocks;
 using CommunityToolkit.Common.Parsers.Markdown.Inlines;
 using CommunityToolkit.Common.Parsers.Markdown.Render;
 using CommunityToolkit.WinUI.UI.Controls.Markdown.Render;
+using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Documents;
@@ -23,6 +24,8 @@ public sealed class FilePathMarkdownRenderer : MarkdownRenderer
     private const string InlineCodePathIconGlyphCode = "\uE943"; // Code
     private const string InlineCodePathIconGlyphFolder = "\uE8B7"; // Folder
     private const string InlineCodePathIconGlyphGeneric = "\uE7C3"; // Page
+
+    private static readonly InputCursor InlineCodeHandCursor = InputSystemCursor.Create(InputSystemCursorShape.Hand);
 
     private static readonly HashSet<string> InlineCodeCodeFileExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -223,24 +226,31 @@ public sealed class FilePathMarkdownRenderer : MarkdownRenderer
             BorderThickness = new Thickness(0),
             BorderBrush = null,
             Padding = padding,
-            Margin = margin,
             CornerRadius = new CornerRadius(4),
             Child = content,
-            IsTapEnabled = isFileCandidate,
-            IsHitTestVisible = isFileCandidate,
+            IsTapEnabled = false,
+            IsHitTestVisible = false,
         };
-
-        // Aligns content in InlineUI, see https://social.msdn.microsoft.com/Forums/silverlight/en-US/48b5e91e-efc5-4768-8eaf-f897849fcf0b/richtextbox-inlineuicontainer-vertical-alignment-issue?forum=silverlightarchieve
-        border.RenderTransform = new TranslateTransform { Y = InlineCodeBaselineOffset };
-
-        if (isFileCandidate && !string.IsNullOrWhiteSpace(tooltip))
-        {
-            ToolTipService.SetToolTip(border, tooltip);
-        }
 
         if (isFileCandidate)
         {
-            border.Tapped += (sender, args) =>
+            var host = new HandCursorPresenter
+            {
+                Margin = margin,
+                Child = border,
+                IsTapEnabled = true,
+                IsHitTestVisible = true,
+            };
+
+            // Aligns content in InlineUI, see https://social.msdn.microsoft.com/Forums/silverlight/en-US/48b5e91e-efc5-4768-8eaf-f897849fcf0b/richtextbox-inlineuicontainer-vertical-alignment-issue?forum=silverlightarchieve
+            host.RenderTransform = new TranslateTransform { Y = InlineCodeBaselineOffset };
+
+            if (!string.IsNullOrWhiteSpace(tooltip))
+            {
+                ToolTipService.SetToolTip(host, tooltip);
+            }
+
+            host.Tapped += (sender, args) =>
             {
                 if (hasResolvedPath)
                 {
@@ -253,9 +263,62 @@ public sealed class FilePathMarkdownRenderer : MarkdownRenderer
                     WorkspaceFileOpener.TryOpenPath(currentResolvedPath);
                 }
             };
+
+            inlineCollection.Add(new InlineUIContainer { Child = host });
+            return;
         }
 
+        border.Margin = margin;
+
+        // Aligns content in InlineUI, see https://social.msdn.microsoft.com/Forums/silverlight/en-US/48b5e91e-efc5-4768-8eaf-f897849fcf0b/richtextbox-inlineuicontainer-vertical-alignment-issue?forum=silverlightarchieve
+        border.RenderTransform = new TranslateTransform { Y = InlineCodeBaselineOffset };
+
         inlineCollection.Add(new InlineUIContainer { Child = border });
+    }
+
+    private sealed class HandCursorPresenter : Panel
+    {
+        public HandCursorPresenter()
+        {
+            Background = new SolidColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0));
+            ProtectedCursor = InlineCodeHandCursor;
+        }
+
+        public UIElement? Child
+        {
+            get => Children.Count > 0 ? Children[0] : null;
+            set
+            {
+                Children.Clear();
+                if (value is not null)
+                {
+                    Children.Add(value);
+                }
+            }
+        }
+
+        protected override Windows.Foundation.Size MeasureOverride(Windows.Foundation.Size availableSize)
+        {
+            var child = Child;
+            if (child is null)
+            {
+                return new Windows.Foundation.Size(0, 0);
+            }
+
+            child.Measure(availableSize);
+            return child.DesiredSize;
+        }
+
+        protected override Windows.Foundation.Size ArrangeOverride(Windows.Foundation.Size finalSize)
+        {
+            var child = Child;
+            if (child is not null)
+            {
+                child.Arrange(new Windows.Foundation.Rect(0, 0, finalSize.Width, finalSize.Height));
+            }
+
+            return finalSize;
+        }
     }
 
     private static string GetInlineCodePathIconGlyph(string raw, bool hasResolvedPath, string resolvedPath, string displayName)
