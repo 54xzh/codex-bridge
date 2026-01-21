@@ -59,6 +59,7 @@
 | 202601202354 | markdown_inline_code_list_baseline_tune | 修复 | ✅已完成（Markdown 行内代码/列表对齐微调） | [202601202354_markdown_inline_code_list_baseline_tune](2026-01/202601202354_markdown_inline_code_list_baseline_tune/) |
 | 202601210008 | markdown_inline_code_list_offset_fix | 修复 | ✅已完成（Markdown 无序列表行内代码对齐修复） | [202601210008_markdown_inline_code_list_offset_fix](2026-01/202601210008_markdown_inline_code_list_offset_fix/) |
 | 202601210129 | inline_code_path_icons | 功能 | ✅已完成（行内文件路径图标） | [202601210129_inline_code_path_icons](2026-01/202601210129_inline_code_path_icons/) |
+| 202601211742 | turn_plan_todo | 功能 | ✅已完成（待办计划/计划回填） | [202601211742_turn_plan_todo](2026-01/202601211742_turn_plan_todo/) |
 
 ---
 
@@ -117,3 +118,4 @@
 - [202601202354_markdown_inline_code_list_baseline_tune](2026-01/202601202354_markdown_inline_code_list_baseline_tune/) - 修复：Markdown 行内代码偏移按字号缩放 + 列表 bullet/首行对齐微调
 - [202601210008_markdown_inline_code_list_offset_fix](2026-01/202601210008_markdown_inline_code_list_offset_fix/) - 修复：Markdown 无序列表行内代码垂直对齐偏移
 - [202601210129_inline_code_path_icons](2026-01/202601210129_inline_code_path_icons/) - WinUI：行内代码文件路径显示类型图标
+- [202601211742_turn_plan_todo](2026-01/202601211742_turn_plan_todo/) - 待办计划：`run.plan.updated` + `GET /api/v1/sessions/{sessionId}/plan` + WinUI 展示

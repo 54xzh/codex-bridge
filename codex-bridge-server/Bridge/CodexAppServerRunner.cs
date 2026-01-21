@@ -12,11 +12,16 @@ public sealed class CodexAppServerRunner
 
     private readonly IOptions<CodexOptions> _options;
     private readonly ILogger<CodexAppServerRunner> _logger;
+    private readonly CodexTurnPlanStore _turnPlanStore;
 
-    public CodexAppServerRunner(IOptions<CodexOptions> options, ILogger<CodexAppServerRunner> logger)
+    public CodexAppServerRunner(
+        IOptions<CodexOptions> options,
+        ILogger<CodexAppServerRunner> logger,
+        CodexTurnPlanStore turnPlanStore)
     {
         _options = options;
         _logger = logger;
+        _turnPlanStore = turnPlanStore;
     }
 
     public async Task<CodexAppServerTurnResult> RunTurnAsync(
@@ -427,6 +432,81 @@ public sealed class CodexAppServerRunner
                                 Status = status ?? "completed",
                                 Turn = turnCompleted,
                             });
+                        return;
+                    }
+                case "turn/plan/updated":
+                    {
+                        var threadId = currentThreadId;
+                        if (TryGetString(@params, "threadId", out var threadIdText) && !string.IsNullOrWhiteSpace(threadIdText))
+                        {
+                            threadId = threadIdText.Trim();
+                        }
+
+                        var turnId = currentTurnId;
+                        if (TryGetString(@params, "turnId", out var turnIdText) && !string.IsNullOrWhiteSpace(turnIdText))
+                        {
+                            turnId = turnIdText.Trim();
+                        }
+
+                        if (string.IsNullOrWhiteSpace(threadId) || string.IsNullOrWhiteSpace(turnId))
+                        {
+                            return;
+                        }
+
+                        if (!@params.TryGetProperty("plan", out var planProp) || planProp.ValueKind != JsonValueKind.Array)
+                        {
+                            return;
+                        }
+
+                        string? explanation = null;
+                        if (@params.TryGetProperty("explanation", out var explanationProp) && explanationProp.ValueKind == JsonValueKind.String)
+                        {
+                            explanation = explanationProp.GetString();
+                        }
+
+                        var steps = new List<TurnPlanStep>(capacity: 8);
+                        foreach (var entry in planProp.EnumerateArray())
+                        {
+                            if (entry.ValueKind != JsonValueKind.Object)
+                            {
+                                continue;
+                            }
+
+                            if (!TryGetString(entry, "step", out var step) || string.IsNullOrWhiteSpace(step))
+                            {
+                                continue;
+                            }
+
+                            if (!TryGetString(entry, "status", out var status) || string.IsNullOrWhiteSpace(status))
+                            {
+                                continue;
+                            }
+
+                            steps.Add(new TurnPlanStep(step.Trim(), status.Trim()));
+                        }
+
+                        var snapshot = new TurnPlanSnapshot(
+                            SessionId: threadId,
+                            TurnId: turnId,
+                            Explanation: string.IsNullOrWhiteSpace(explanation) ? null : explanation.Trim(),
+                            Plan: steps.ToArray(),
+                            UpdatedAt: DateTimeOffset.UtcNow);
+
+                        _turnPlanStore.Upsert(snapshot);
+
+                        await emitEvent(
+                            CreateEvent(
+                                "run.plan.updated",
+                                new
+                                {
+                                    runId,
+                                    threadId,
+                                    turnId,
+                                    explanation = snapshot.Explanation,
+                                    plan = snapshot.Plan,
+                                    updatedAt = snapshot.UpdatedAt,
+                                }),
+                            ct);
                         return;
                     }
                 case "item/agentMessage/delta":

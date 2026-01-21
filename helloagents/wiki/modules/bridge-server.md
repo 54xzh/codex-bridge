@@ -45,6 +45,9 @@ Bridge Server 需要被包含在应用包的 `bridge-server/` 子目录中；Win
 **描述:** 获取会话历史消息（解析 JSONL 的 message 记录，用于前端回放；过滤 developer/system/环境上下文，仅保留 user/assistant 的真实对话；并可附带 trace 回放；当 message.content 中包含 `input_image/output_image` 时会返回 `images`（data URL）供前端解码显示）
 补充：兼容 `event_msg.agent_message` 作为 assistant 正文兜底；当会话末尾仅有 trace 且无正文输出时，会刷出占位 assistant 消息（文本为 `（未输出正文）`）以避免历史丢失。
 
+### [GET] /api/v1/sessions/{sessionId}/plan
+**描述:** 获取会话最新计划（turn plan）。数据来自 Bridge Server 内存缓存（由 `turn/plan/updated` 推送更新），用于前端进入会话/重连时回填；无缓存时返回 404。
+
 ### [WS] /ws
 **描述:** 命令与事件通道（聊天发送/流式输出/多端同步）
 
@@ -52,7 +55,7 @@ Bridge Server 需要被包含在应用包的 `bridge-server/` 子目录中；Win
 - command: `chat.send`（支持 `prompt`/`images`/`sessionId(resume)`/`workingDirectory`/`model`/`sandbox`/`approvalPolicy`/`effort`/`skipGitRepoCheck`）
 - command: `run.cancel`
 - command: `approval.respond`
-- event: `bridge.connected` / `session.created` / `chat.message` / `run.started` / `run.command` / `run.reasoning` / `run.completed` / `run.canceled` / `run.failed` / `run.rejected`
+- event: `bridge.connected` / `session.created` / `chat.message` / `run.started` / `run.plan.updated` / `run.command` / `run.reasoning` / `run.completed` / `run.canceled` / `run.failed` / `run.rejected`
 - event: `approval.requested` / `chat.message.delta` / `run.command.outputDelta` / `run.reasoning.delta`
 
 **说明:**
@@ -94,6 +97,7 @@ Bridge Server 需要被包含在应用包的 `bridge-server/` 子目录中；Win
 - [202601192202_context_usage_status](../../history/2026-01/202601192202_context_usage_status/) - 状态查询：/status 精简为限额与上下文用量
 - [202601192243_context_usage_flyout](../../history/2026-01/202601192243_context_usage_flyout/) - 状态查询：限额重置时间格式调整，WinUI 侧改为 Flyout + 进度条
 - [202601200021_fix_incomplete_reply_history](../../history/2026-01/202601200021_fix_incomplete_reply_history/) - 修复：无正文/中断回复的会话回放不再丢失（agent_message 兜底 + trace 末尾刷出占位 assistant）
+- [202601211742_turn_plan_todo](../../history/2026-01/202601211742_turn_plan_todo/) - 待办计划：`run.plan.updated` + `GET /api/v1/sessions/{sessionId}/plan`
 
 ## 依赖
 - Codex CLI

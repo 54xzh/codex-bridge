@@ -75,6 +75,27 @@ Bridge Server 对外提供两类接口：
 }
 ```
 
+#### [GET] /api/v1/sessions/{sessionId}/plan
+**描述:** 获取会话最新计划（turn plan）（已实现）
+
+**说明（当前实现）:**
+- 数据来源：Bridge Server 内存缓存（由 `codex app-server` 的 `turn/plan/updated` 推送更新）
+- 用途：前端进入会话/重连时回填计划展示
+- 未命中缓存：返回 404
+
+**响应:**
+```json
+{
+  "sessionId": "thread_xxx",
+  "turnId": "turn_xxx",
+  "explanation": "可选说明",
+  "updatedAt": "2026-01-21T09:42:00Z",
+  "plan": [
+    { "step": "…", "status": "pending|inProgress|completed" }
+  ]
+}
+```
+
 #### [POST] /api/v1/sessions/{sessionId}/archive
 **描述:** 归档/隐藏会话（规划）
 
@@ -113,6 +134,7 @@ Bridge Server 对外提供两类接口：
 - event `chat.message.delta`：`{ "runId": "...", "itemId": "item_3", "delta": "..." }`
 - event `approval.requested`：`{ "runId": "...", "requestId": "...", "kind": "commandExecution|fileChange", "threadId": "...", "turnId": "...", "itemId": "...", "reason": "..." }`
 - event `run.started`：`{ "runId": "...", "clientId": "..." }`
+- event `run.plan.updated`：`{ "runId": "...", "threadId": "...", "turnId": "...", "explanation": "...", "plan": [{ "step": "...", "status": "pending|inProgress|completed" }], "updatedAt": "..." }`
 - event `run.command`：`{ "runId": "...", "itemId": "item_0", "command": "...", "status": "inProgress|completed|failed|declined", "exitCode": 0, "output": "..." }`
 - event `run.command.outputDelta`：`{ "runId": "...", "itemId": "item_0", "delta": "..." }`
 - event `run.reasoning`：`{ "runId": "...", "itemId": "item_1", "text": "..." }`

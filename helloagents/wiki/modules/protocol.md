@@ -17,9 +17,12 @@
 服务端将 Codex 的 JSONL 事件映射为稳定的协议事件（必要时可透传原始事件以便调试）。
 当前映射示例：
 - `thread.started(thread_id)` → `session.created(sessionId)`
+- `turn/plan/updated(threadId/turnId/plan/explanation)` → `run.plan.updated(threadId/turnId/plan/explanation/updatedAt)`
 - `item.completed(item.type=agent_message, item.text)` → `chat.message(role=assistant, text)`
 - `item.started|item.completed(item.type=command_execution)` → `run.command(itemId/command/status/exitCode/output)`
 - `item.completed(item.type=reasoning, item.text)` → `run.reasoning(itemId/text)`
+
+补充：`run.plan.updated.plan[].status` 取值与 `codex app-server` 对齐：`pending` / `inProgress` / `completed`。
 
 #### 场景: 消息封装（Envelope）
 统一使用 JSON 消息封装，字段采用 camelCase（与 `System.Text.Json` Web 默认一致）：
@@ -51,3 +54,4 @@
 - [202601180700_filter_codex_json_events](../../history/2026-01/202601180700_filter_codex_json_events/) - 将 codex `--json` 控制事件映射为协议事件，避免 UI 显示原始 JSON
 - [202601181348_trace_thinking](../../history/2026-01/202601181348_trace_thinking/) - 增补 `run.command` / `run.reasoning`（执行命令/思考摘要）
 - [202601190157_chat_images](../../history/2026-01/202601190157_chat_images/) - 增补 `chat.send/images` 与会话回放 `images`（data URL）
+- [202601211742_turn_plan_todo](../../history/2026-01/202601211742_turn_plan_todo/) - 增补 `run.plan.updated`（turn plan）与会话计划回填

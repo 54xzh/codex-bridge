@@ -18,6 +18,7 @@ builder.Services.AddSingleton<codex_bridge_server.Bridge.CodexCliInfo>();
 builder.Services.AddSingleton<codex_bridge_server.Bridge.CodexRunner>();
 builder.Services.AddSingleton<codex_bridge_server.Bridge.CodexAppServerRunner>();
 builder.Services.AddSingleton<codex_bridge_server.Bridge.CodexSessionStore>();
+builder.Services.AddSingleton<codex_bridge_server.Bridge.CodexTurnPlanStore>();
 builder.Services.AddSingleton<codex_bridge_server.Bridge.StatusTextBuilder>();
 builder.Services.AddSingleton<codex_bridge_server.Bridge.WebSocketHub>();
 

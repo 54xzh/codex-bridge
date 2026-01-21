@@ -15,6 +15,7 @@
 - 新增运行追踪事件：Bridge Server 解析 `command_execution` / `reasoning` 并广播 `run.command` / `run.reasoning`，WinUI Chat 页以可展开区块展示“执行的命令”和“思考摘要”
 - 新增会话回放 trace：`/api/v1/sessions/{sessionId}/messages` 的 assistant 消息可附带 `trace`（思考摘要/命令），并在 WinUI Chat 页按时间顺序展示
 - 新增运行链路（app-server）：Bridge Server 改用 `codex app-server`（JSON-RPC）以支持审批请求与 delta 流式事件；WinUI Chat 页增加 `approvalPolicy/effort` 选择与审批弹窗
+- 新增待办计划（turn plan）：Bridge Server 转发 `turn/plan/updated` 为 `run.plan.updated` 并缓存最新计划；新增 `GET /api/v1/sessions/{sessionId}/plan`；WinUI Chat 页新增“待办/计划”面板并支持进入会话回填
 - 新增 WinUI：`model` / `model_reasoning_effort` 自动读取 `~/.codex/config.toml`，并在 Chat 页/设置页修改后写回
 - 新增 WinUI：Chat 页工作区按钮显示目录名（basename），菜单支持资源管理器打开/重新选择，并展示最近 5 条 cwd（完整路径）以便快速切换
 - 新增 WinUI：选择已有会话后自动使用该会话的 `cwd` 作为 workingDirectory

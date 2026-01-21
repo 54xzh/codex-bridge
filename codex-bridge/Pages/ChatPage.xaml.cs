@@ -19,6 +19,7 @@ using System.Collections.Specialized;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Runtime.InteropServices.WindowsRuntime;
@@ -48,6 +49,7 @@ public sealed partial class ChatPage : Page
     private readonly HttpClient _httpClient = new();
     private readonly Dictionary<string, ChatMessageViewModel> _runToMessage = new();
     private string? _historyLoadedForSessionId;
+    private string? _planLoadedForSessionId;
     private int _autoConnectAttempted;
     private ScrollViewer? _messagesScrollViewer;
     private bool _scrollToBottomPending;
@@ -57,6 +59,8 @@ public sealed partial class ChatPage : Page
     public ObservableCollection<ChatMessageViewModel> Messages { get; } = new();
 
     public ObservableCollection<ChatImageViewModel> PendingImages { get; } = new();
+
+    public ObservableCollection<TurnPlanStepViewModel> TurnPlanSteps { get; } = new();
 
     public ChatPage()
     {
@@ -82,6 +86,7 @@ public sealed partial class ChatPage : Page
         EnsureMessagesScrollViewer();
         await EnsureBackendAndConnectAsync();
         await LoadSessionHistoryIfNeededAsync();
+        await LoadSessionPlanIfNeededAsync();
         await RefreshContextUsageAsync();
     }
 
@@ -1035,6 +1040,9 @@ public sealed partial class ChatPage : Page
                 HandleRunReasoningDelta(envelope.Data);
                 contentUpdated = true;
                 break;
+            case "run.plan.updated":
+                HandleRunPlanUpdated(envelope.Data);
+                break;
             case "approval.requested":
                 _ = HandleApprovalRequestedAsync(envelope.Data);
                 break;
@@ -1287,6 +1295,201 @@ public sealed partial class ChatPage : Page
 
         var message = GetOrCreateRunMessage(runId);
         message.AppendReasoningDelta(itemId, textDelta);
+    }
+
+    private void HandleRunPlanUpdated(JsonElement data)
+    {
+        var threadId = GetOptionalString(data, "threadId");
+        var currentSessionId = App.SessionState.CurrentSessionId;
+
+        if (!string.IsNullOrWhiteSpace(threadId)
+            && !string.IsNullOrWhiteSpace(currentSessionId)
+            && !string.Equals(threadId, currentSessionId, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var explanation = GetOptionalString(data, "explanation");
+        var updatedAtText = GetOptionalString(data, "updatedAt");
+        var updatedAt = DateTimeOffset.TryParse(updatedAtText, out var parsedUpdatedAt) ? parsedUpdatedAt : (DateTimeOffset?)null;
+        var turnId = GetOptionalString(data, "turnId");
+
+        var steps = new List<TurnPlanStepViewModel>();
+        if (data.TryGetProperty("plan", out var planProp) && planProp.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var entry in planProp.EnumerateArray())
+            {
+                if (entry.ValueKind != JsonValueKind.Object)
+                {
+                    continue;
+                }
+
+                if (!TryGetString(entry, "step", out var step) || string.IsNullOrWhiteSpace(step))
+                {
+                    continue;
+                }
+
+                TryGetString(entry, "status", out var status);
+                steps.Add(new TurnPlanStepViewModel(step.Trim(), status.Trim()));
+            }
+        }
+
+        ApplyTurnPlan(explanation, steps, updatedAt, turnId);
+
+        if (!string.IsNullOrWhiteSpace(threadId))
+        {
+            _planLoadedForSessionId = threadId;
+        }
+    }
+
+    private async Task LoadSessionPlanIfNeededAsync()
+    {
+        var sessionId = App.SessionState.CurrentSessionId;
+        if (string.IsNullOrWhiteSpace(sessionId))
+        {
+            return;
+        }
+
+        if (string.Equals(_planLoadedForSessionId, sessionId, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var baseUri = App.BackendServer.HttpBaseUri;
+        if (baseUri is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var path = $"api/v1/sessions/{Uri.EscapeDataString(sessionId)}/plan";
+            var uri = new Uri(baseUri, path);
+
+            using var request = new HttpRequestMessage(HttpMethod.Get, uri);
+            var token = App.ConnectionService.BearerToken;
+            if (!string.IsNullOrWhiteSpace(token))
+            {
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            }
+
+            using var response = await _httpClient.SendAsync(request, CancellationToken.None);
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                ClearTurnPlan();
+                _planLoadedForSessionId = sessionId;
+                return;
+            }
+
+            response.EnsureSuccessStatusCode();
+
+            var json = await response.Content.ReadAsStringAsync(CancellationToken.None);
+            var snapshot = JsonSerializer.Deserialize<TurnPlanSnapshot>(json, JsonOptions);
+            if (snapshot is null)
+            {
+                ClearTurnPlan();
+                _planLoadedForSessionId = sessionId;
+                return;
+            }
+
+            ApplyTurnPlanSnapshot(snapshot);
+            _planLoadedForSessionId = sessionId;
+        }
+        catch (Exception ex)
+        {
+            SetSessionStatus($"加载会话计划失败: {ex.Message}");
+        }
+    }
+
+    private void ApplyTurnPlanSnapshot(TurnPlanSnapshot snapshot)
+    {
+        var steps = snapshot.Plan
+            .Where(entry => entry is not null && !string.IsNullOrWhiteSpace(entry.Step))
+            .Select(entry => new TurnPlanStepViewModel(entry.Step.Trim(), entry.Status?.Trim() ?? string.Empty))
+            .ToList();
+
+        ApplyTurnPlan(snapshot.Explanation, steps, snapshot.UpdatedAt, snapshot.TurnId);
+    }
+
+    private void ApplyTurnPlan(string? explanation, IReadOnlyList<TurnPlanStepViewModel> steps, DateTimeOffset? updatedAt, string? turnId)
+    {
+        TurnPlanSteps.Clear();
+        foreach (var step in steps)
+        {
+            TurnPlanSteps.Add(step);
+        }
+
+        var hasExplanation = !string.IsNullOrWhiteSpace(explanation);
+        TurnPlanExplanationText.Text = hasExplanation ? explanation!.Trim() : string.Empty;
+        TurnPlanExplanationText.Visibility = hasExplanation ? Visibility.Visible : Visibility.Collapsed;
+
+        var hasSteps = TurnPlanSteps.Count > 0;
+        TurnPlanSummaryText.Text = BuildTurnPlanSummary(TurnPlanSteps, updatedAt, turnId);
+
+        var visible = hasSteps || hasExplanation;
+        TurnPlanCard.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+
+        if (!visible)
+        {
+            TurnPlanExpander.IsExpanded = false;
+            return;
+        }
+
+        if (!TurnPlanExpander.IsExpanded && hasSteps)
+        {
+            TurnPlanExpander.IsExpanded = true;
+        }
+    }
+
+    private void ClearTurnPlan()
+    {
+        TurnPlanSteps.Clear();
+        TurnPlanExplanationText.Text = string.Empty;
+        TurnPlanExplanationText.Visibility = Visibility.Collapsed;
+        TurnPlanSummaryText.Text = string.Empty;
+        TurnPlanExpander.IsExpanded = false;
+        TurnPlanCard.Visibility = Visibility.Collapsed;
+    }
+
+    private static string BuildTurnPlanSummary(IReadOnlyList<TurnPlanStepViewModel> steps, DateTimeOffset? updatedAt, string? turnId)
+    {
+        if (steps.Count == 0 && !updatedAt.HasValue)
+        {
+            return string.Empty;
+        }
+
+        var total = steps.Count;
+        var completed = steps.Count(s => s.IsCompleted);
+        var inProgress = steps.Count(s => s.IsInProgress);
+        var pending = total - completed - inProgress;
+
+        var parts = new List<string>(capacity: 4);
+        if (total > 0)
+        {
+            parts.Add($"已完成 {completed}/{total}");
+        }
+
+        if (inProgress > 0)
+        {
+            parts.Add($"进行中 {inProgress}");
+        }
+
+        if (pending > 0)
+        {
+            parts.Add($"待处理 {pending}");
+        }
+
+        if (updatedAt.HasValue)
+        {
+            parts.Add($"更新 {updatedAt.Value.ToLocalTime():HH:mm}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(turnId))
+        {
+            parts.Add(turnId.Trim());
+        }
+
+        return string.Join(" · ", parts);
     }
 
     private async Task HandleApprovalRequestedAsync(JsonElement data)

@@ -10,11 +10,13 @@ public sealed class SessionsController : ControllerBase
 {
     private readonly BridgeRequestAuthorizer _authorizer;
     private readonly CodexSessionStore _sessionStore;
+    private readonly CodexTurnPlanStore _turnPlanStore;
 
-    public SessionsController(BridgeRequestAuthorizer authorizer, CodexSessionStore sessionStore)
+    public SessionsController(BridgeRequestAuthorizer authorizer, CodexSessionStore sessionStore, CodexTurnPlanStore turnPlanStore)
     {
         _authorizer = authorizer;
         _sessionStore = sessionStore;
+        _turnPlanStore = turnPlanStore;
     }
 
     [HttpGet]
@@ -79,6 +81,27 @@ public sealed class SessionsController : ControllerBase
         }
 
         return Ok(messages);
+    }
+
+    [HttpGet("{sessionId}/plan")]
+    public IActionResult GetLatestPlan([FromRoute] string sessionId)
+    {
+        if (!_authorizer.IsAuthorized(HttpContext))
+        {
+            return Unauthorized();
+        }
+
+        if (string.IsNullOrWhiteSpace(sessionId))
+        {
+            return BadRequest(new { message = "sessionId 不能为空" });
+        }
+
+        if (!_turnPlanStore.TryGet(sessionId.Trim(), out var snapshot))
+        {
+            return NotFound();
+        }
+
+        return Ok(snapshot);
     }
 
     [HttpDelete("{sessionId}")]
