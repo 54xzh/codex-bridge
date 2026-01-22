@@ -39,6 +39,7 @@
 - 优化上下文用量菜单排版：Flyout 加宽并调整行距/字间距，限额改为进度条可视化
 - 优化 WinUI Markdown 代码块样式：浅色背景/黑色字体/圆角，提高对比度
 - 优化 WinUI Markdown 行内代码样式：可打开文件路径高亮（浅蓝背景/蓝字、圆角、无描边），并修正 `InlineUIContainer` 基线对齐以减少行内“漂移”（含列表场景对齐优化）
+- 优化 WinUI 连接页：局域网地址自动选择并显示为只读文本，移除手动 IP 下拉选择
 - Android：重构 UI 为 Material3 + Navigation-Compose 三模块骨架（会话列表/聊天/连接设备），并抽离连接配置存储与 token 加密
 - 安全：`POST /api/v1/sessions` 与 `DELETE /api/v1/sessions/{sessionId}` 调整为仅回环可用（远程设备使用 WS `chat.send` 建立会话）
 - 连接：记住“允许局域网连接”开关并持久化端口，避免每次启动手动开启与重复配对
@@ -68,3 +69,4 @@
 - 修复 WinUI Markdown 无序列表中行内代码渲染向下偏移的问题
 - 修复点击行内代码中的文件夹时可能重复打开资源管理器的问题（点击去重）
 - 修复行内代码中形如 `GET /...` / `POST /...` 的路径被误识别为文件夹的问题
+- 修复 Android 连接设备页提示文案引号错误导致 `:app:compileDebugKotlin` 编译失败

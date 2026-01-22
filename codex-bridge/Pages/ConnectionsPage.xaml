@@ -8,7 +8,7 @@
     xmlns:vm="using:codex_bridge.ViewModels"
     mc:Ignorable="d">
 
-    <Grid Padding="24" RowDefinitions="Auto,Auto,*,Auto" RowSpacing="16">
+    <Grid Padding="24" RowDefinitions="Auto,Auto,*" RowSpacing="16">
 
         <TextBlock Text="连接" Style="{StaticResource TitleTextBlockStyle}" />
 
@@ -20,34 +20,11 @@
             CornerRadius="8"
             Padding="16">
             <StackPanel Spacing="12">
-                <ToggleSwitch
-                    x:Name="LanEnabledToggle"
-                    Header="允许局域网连接"
-                    Toggled="LanEnabledToggle_Toggled" />
-
-                <TextBlock x:Name="AddressTextBlock" Opacity="0.7" TextWrapping="Wrap" />
-
                 <StackPanel Orientation="Horizontal" Spacing="12">
-                    <ComboBox
-                        x:Name="IpComboBox"
-                        Width="320"
-                        PlaceholderText="选择局域网 IP"
-                        SelectionChanged="IpComboBox_SelectionChanged" />
-
-                    <Button x:Name="GeneratePairingButton" Click="GeneratePairingButton_Click" Style="{StaticResource AccentButtonStyle}">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <SymbolIcon Symbol="Camera" />
-                            <TextBlock Text="生成配对二维码" />
-                        </StackPanel>
-                    </Button>
-
-                    <Button x:Name="RefreshButton" Click="RefreshButton_Click">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <SymbolIcon Symbol="Refresh" />
-                            <TextBlock Text="刷新设备" />
-                        </StackPanel>
-                    </Button>
-
+                    <ToggleSwitch
+                        x:Name="LanEnabledToggle"
+                        Header="允许局域网连接"
+                        Toggled="LanEnabledToggle_Toggled" />
                     <TextBlock x:Name="StatusTextBlock" VerticalAlignment="Center" Opacity="0.7" />
                 </StackPanel>
 
@@ -59,12 +36,20 @@
                         <Image x:Name="QrImage" Width="180" Height="180" Stretch="Uniform" />
                     </Border>
 
-                    <StackPanel Grid.Column="1" Spacing="6">
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="12">
                         <TextBlock Text="配对信息" Style="{StaticResource BodyStrongTextBlockStyle}" />
-                        <TextBlock x:Name="PairingCodeTextBlock" FontFamily="Cascadia Code,Consolas,monospace" TextWrapping="Wrap" />
-                        <TextBlock x:Name="PairingUrlTextBlock" TextWrapping="Wrap" />
                         <TextBlock
                             Opacity="0.6"
+                            Text="扫描二维码或点击下方按钮复制配对链接"
+                            TextWrapping="Wrap" />
+                        <Button x:Name="CopyPairingButton" Click="CopyPairingButton_Click" Style="{StaticResource AccentButtonStyle}">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <SymbolIcon Symbol="Copy" />
+                                <TextBlock Text="复制配对链接" />
+                            </StackPanel>
+                        </Button>
+                        <TextBlock
+                            Opacity="0.5"
                             Text="提示：扫码/输入后仍需在本机确认；撤销设备可立即断开并失效。"
                             TextWrapping="Wrap" />
                     </StackPanel>
@@ -129,16 +114,5 @@
                 </DataTemplate>
             </ListView.ItemTemplate>
         </ListView>
-
-        <Border
-            Grid.Row="3"
-            Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
-            CornerRadius="4"
-            Padding="12,8">
-            <TextBlock
-                Opacity="0.8"
-                Text="?? 远程访问默认关闭；启用后将通过设备令牌鉴权，并支持逐设备撤销。"
-                TextWrapping="Wrap" />
-        </Border>
     </Grid>
 </Page>

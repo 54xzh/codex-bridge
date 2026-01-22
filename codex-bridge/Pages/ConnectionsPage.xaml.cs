@@ -1,23 +1,21 @@
 // ConnectionsPage：连接管理页（局域网共享开关、配对二维码、已配对设备列表与撤销）。
 using codex_bridge.Models;
+using codex_bridge.Networking;
 using codex_bridge.ViewModels;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media.Imaging;
 using QRCoder;
 using System;
-using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
-using System.Net;
-using System.Net.NetworkInformation;
-using System.Net.Sockets;
 using System.Net.Http;
 using System.Runtime.InteropServices.WindowsRuntime;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Windows.ApplicationModel.DataTransfer;
 using Windows.Storage.Streams;
 
 namespace codex_bridge.Pages;
@@ -31,6 +29,7 @@ public sealed partial class ConnectionsPage : Page
     private bool _loadedOnce;
     private bool _suppressLanToggle;
     private string? _currentPairingCode;
+    private string? _currentPairingUri;
 
     public ObservableCollection<PairedDeviceViewModel> Devices { get; } = new();
 
@@ -50,14 +49,19 @@ public sealed partial class ConnectionsPage : Page
         _loadedOnce = true;
 
         await EnsureBackendAsync();
-        PopulateLanAddresses();
 
         _suppressLanToggle = true;
         LanEnabledToggle.IsOn = App.BackendServer.IsLanEnabled;
         _suppressLanToggle = false;
-        GeneratePairingButton.IsEnabled = LanEnabledToggle.IsOn;
 
-        UpdateAddressSummary();
+        CopyPairingButton.IsEnabled = LanEnabledToggle.IsOn;
+
+        // 自动生成二维码
+        if (LanEnabledToggle.IsOn)
+        {
+            await GeneratePairingAsync();
+        }
+
         await RefreshDevicesAsync();
     }
 
@@ -74,36 +78,6 @@ public sealed partial class ConnectionsPage : Page
         }
     }
 
-    private void PopulateLanAddresses()
-    {
-        IpComboBox.Items.Clear();
-
-        var addresses = GetLanIPv4Addresses();
-        foreach (var address in addresses)
-        {
-            IpComboBox.Items.Add(address);
-        }
-
-        if (IpComboBox.Items.Count > 0)
-        {
-            IpComboBox.SelectedIndex = 0;
-        }
-    }
-
-    private void UpdateAddressSummary()
-    {
-        var baseUri = App.BackendServer.HttpBaseUri;
-        if (baseUri is null)
-        {
-            AddressTextBlock.Text = "后端未就绪";
-            return;
-        }
-
-        var port = baseUri.Port;
-        var lanMode = App.BackendServer.IsLanEnabled ? "已启用" : "未启用";
-        AddressTextBlock.Text = $"本机地址: http://127.0.0.1:{port}  ·  局域网共享: {lanMode}";
-    }
-
     private async void LanEnabledToggle_Toggled(object sender, RoutedEventArgs e)
     {
         if (!_loadedOnce || _suppressLanToggle)
@@ -115,8 +89,7 @@ public sealed partial class ConnectionsPage : Page
 
         try
         {
-            GeneratePairingButton.IsEnabled = false;
-            RefreshButton.IsEnabled = false;
+            CopyPairingButton.IsEnabled = false;
             SetStatus(enable ? "启用局域网共享…" : "关闭局域网共享…");
 
             if (App.ConnectionService.IsConnected)
@@ -133,11 +106,14 @@ public sealed partial class ConnectionsPage : Page
                 await App.ConnectionService.ConnectAsync(wsUri, CancellationToken.None);
             }
 
-            UpdateAddressSummary();
-            GeneratePairingButton.IsEnabled = enable;
-            RefreshButton.IsEnabled = true;
+            CopyPairingButton.IsEnabled = enable;
 
-            if (!enable)
+            if (enable)
+            {
+                // 自动生成二维码
+                await GeneratePairingAsync();
+            }
+            else
             {
                 ClearPairingUi();
             }
@@ -151,12 +127,11 @@ public sealed partial class ConnectionsPage : Page
             _suppressLanToggle = true;
             LanEnabledToggle.IsOn = App.BackendServer.IsLanEnabled;
             _suppressLanToggle = false;
-            GeneratePairingButton.IsEnabled = LanEnabledToggle.IsOn;
-            RefreshButton.IsEnabled = true;
+            CopyPairingButton.IsEnabled = LanEnabledToggle.IsOn;
         }
     }
 
-    private async void GeneratePairingButton_Click(object sender, RoutedEventArgs e)
+    private async Task GeneratePairingAsync()
     {
         try
         {
@@ -208,10 +183,10 @@ public sealed partial class ConnectionsPage : Page
             return;
         }
 
-        var ip = IpComboBox.SelectedItem?.ToString();
+        var ip = LanAddressSelector.TryGetPreferredLanIpv4Address();
         if (string.IsNullOrWhiteSpace(ip))
         {
-            SetStatus("请选择局域网 IP");
+            SetStatus("未检测到可用局域网 IPv4");
             return;
         }
 
@@ -222,15 +197,12 @@ public sealed partial class ConnectionsPage : Page
 
         var port = baseUri.Port;
         var lanBaseUrl = $"http://{ip}:{port}/";
-        var pairingUri = $"codex-bridge://pair?baseUrl={Uri.EscapeDataString(lanBaseUrl)}&pairingCode={Uri.EscapeDataString(_currentPairingCode)}";
-
-        PairingCodeTextBlock.Text = $"pairingCode: {_currentPairingCode}";
-        PairingUrlTextBlock.Text = pairingUri;
+        _currentPairingUri = $"codex-bridge://pair?baseUrl={Uri.EscapeDataString(lanBaseUrl)}&pairingCode={Uri.EscapeDataString(_currentPairingCode)}";
 
         try
         {
             var qrGenerator = new QRCodeGenerator();
-            using var qrData = qrGenerator.CreateQrCode(pairingUri, QRCodeGenerator.ECCLevel.Q);
+            using var qrData = qrGenerator.CreateQrCode(_currentPairingUri, QRCodeGenerator.ECCLevel.Q);
             var qrCode = new PngByteQRCode(qrData);
             var pngBytes = qrCode.GetGraphic(20);
 
@@ -251,14 +223,22 @@ public sealed partial class ConnectionsPage : Page
     private void ClearPairingUi()
     {
         _currentPairingCode = null;
+        _currentPairingUri = null;
         QrImage.Source = null;
-        PairingCodeTextBlock.Text = string.Empty;
-        PairingUrlTextBlock.Text = string.Empty;
     }
 
-    private async void RefreshButton_Click(object sender, RoutedEventArgs e)
+    private void CopyPairingButton_Click(object sender, RoutedEventArgs e)
     {
-        await RefreshDevicesAsync();
+        if (string.IsNullOrWhiteSpace(_currentPairingUri))
+        {
+            SetStatus("请先启用局域网共享");
+            return;
+        }
+
+        var dataPackage = new DataPackage();
+        dataPackage.SetText(_currentPairingUri);
+        Clipboard.SetContent(dataPackage);
+        SetStatus("配对链接已复制到剪贴板");
     }
 
     private async Task RefreshDevicesAsync()
@@ -340,70 +320,8 @@ public sealed partial class ConnectionsPage : Page
         }
     }
 
-    private async void IpComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (string.IsNullOrWhiteSpace(_currentPairingCode))
-        {
-            return;
-        }
-
-        await UpdatePairingUiAsync();
-    }
-
     private void SetStatus(string text)
     {
         StatusTextBlock.Text = text;
-    }
-
-    private static IReadOnlyList<string> GetLanIPv4Addresses()
-    {
-        var results = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var nic in NetworkInterface.GetAllNetworkInterfaces())
-        {
-            if (nic.OperationalStatus != OperationalStatus.Up)
-            {
-                continue;
-            }
-
-            if (nic.NetworkInterfaceType is NetworkInterfaceType.Loopback or NetworkInterfaceType.Tunnel)
-            {
-                continue;
-            }
-
-            IPInterfaceProperties? props;
-            try
-            {
-                props = nic.GetIPProperties();
-            }
-            catch
-            {
-                continue;
-            }
-
-            foreach (var uni in props.UnicastAddresses)
-            {
-                if (uni.Address.AddressFamily != AddressFamily.InterNetwork)
-                {
-                    continue;
-                }
-
-                var addr = uni.Address;
-                if (IPAddress.IsLoopback(addr))
-                {
-                    continue;
-                }
-
-                var text = addr.ToString();
-                if (text.StartsWith("169.254.", StringComparison.Ordinal))
-                {
-                    continue;
-                }
-
-                results.Add(text);
-            }
-        }
-
-        return results.OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToArray();
     }
 }
