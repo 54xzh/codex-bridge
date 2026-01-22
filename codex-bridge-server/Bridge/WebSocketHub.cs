@@ -18,11 +18,10 @@ public sealed class WebSocketHub
     private readonly DevicePresenceTracker _presenceTracker;
     private readonly ILogger<WebSocketHub> _logger;
 
-    private CancellationTokenSource? _currentRunCts;
-    private readonly object _approvalGate = new();
-    private TaskCompletionSource<CodexAppServerApprovalDecision>? _pendingApprovalTcs;
-    private string? _pendingApprovalRequestId;
-    private string? _pendingApprovalRunId;
+    private readonly ConcurrentDictionary<string, RunContext> _runs = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, string> _activeRunBySessionId = new(StringComparer.OrdinalIgnoreCase);
+
+    private readonly ConcurrentDictionary<(string runId, string requestId), TaskCompletionSource<CodexAppServerApprovalDecision>> _pendingApprovals = new();
 
     public WebSocketHub(
         BridgeRequestAuthorizer authorizer,
@@ -62,7 +61,7 @@ public sealed class WebSocketHub
 
         try
         {
-            await SendAsync(webSocket, CreateEvent("bridge.connected", new { clientId }), context.RequestAborted);
+            await SendAsync(_clients[clientId], CreateEvent("bridge.connected", new { clientId }), context.RequestAborted);
             if (!string.IsNullOrWhiteSpace(auth.DeviceId))
             {
                 await BroadcastToLoopbackAsync(
@@ -201,7 +200,7 @@ public sealed class WebSocketHub
                 await HandleChatSendAsync(clientId, envelope, cancellationToken);
                 break;
             case "run.cancel":
-                await HandleRunCancelAsync(clientId, cancellationToken);
+                await HandleRunCancelAsync(clientId, envelope, cancellationToken);
                 break;
             case "approval.respond":
                 await HandleApprovalRespondAsync(clientId, envelope, cancellationToken);
@@ -211,12 +210,6 @@ public sealed class WebSocketHub
 
     private async Task HandleChatSendAsync(string clientId, BridgeEnvelope envelope, CancellationToken cancellationToken)
     {
-        if (_currentRunCts is not null)
-        {
-            await BroadcastAsync(CreateEvent("run.rejected", new { reason = "已有运行中的任务" }), cancellationToken);
-            return;
-        }
-
         TryGetString(envelope.Data, "prompt", out var prompt);
         prompt = prompt?.Trim() ?? string.Empty;
 
@@ -229,6 +222,7 @@ public sealed class WebSocketHub
         }
 
         TryGetString(envelope.Data, "sessionId", out var sessionId);
+        sessionId = NormalizeSessionId(sessionId);
         TryGetString(envelope.Data, "workingDirectory", out var workingDirectory);
         TryGetString(envelope.Data, "model", out var model);
         TryGetString(envelope.Data, "sandbox", out var sandbox);
@@ -238,10 +232,19 @@ public sealed class WebSocketHub
         var runId = Guid.NewGuid().ToString("N");
 
         var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        _currentRunCts = cts;
+        var run = new RunContext(runId, clientId, sessionId, cts);
+        _runs[runId] = run;
 
-        await BroadcastAsync(CreateEvent("chat.message", new { runId, role = "user", text = prompt, images, clientId }), cancellationToken);
-        await BroadcastAsync(CreateEvent("run.started", new { runId, clientId }), cancellationToken);
+        if (!string.IsNullOrWhiteSpace(sessionId) && !_activeRunBySessionId.TryAdd(sessionId, runId))
+        {
+            _runs.TryRemove(runId, out _);
+            cts.Dispose();
+            await BroadcastAsync(CreateEvent("run.rejected", new { clientId, sessionId, reason = "该会话已有运行中的任务" }), cancellationToken);
+            return;
+        }
+
+        await BroadcastAsync(CreateEvent("chat.message", new { runId, sessionId, role = "user", text = prompt, images, clientId }), cancellationToken);
+        await BroadcastAsync(CreateEvent("run.started", new { runId, sessionId, clientId }), cancellationToken);
 
         _ = Task.Run(async () =>
         {
@@ -266,50 +269,64 @@ public sealed class WebSocketHub
                         ApprovalPolicy = approvalPolicy,
                         Effort = effort,
                     },
-                    BroadcastAsync,
+                    (evt, ct) => EmitRunEventAsync(run, evt, ct),
                     (approval, ct) => RequestApprovalAsync(runId, approval, ct),
                     cts.Token);
 
                 var status = result.Status?.Trim();
                 if (string.Equals(status, "completed", StringComparison.OrdinalIgnoreCase))
                 {
-                    await BroadcastAsync(CreateEvent("run.completed", new { runId, exitCode = 0 }), cts.Token);
+                    await BroadcastAsync(CreateEvent("run.completed", new { runId, sessionId = run.SessionId, exitCode = 0 }), cts.Token);
                     return;
                 }
 
                 if (string.Equals(status, "interrupted", StringComparison.OrdinalIgnoreCase))
                 {
-                    await BroadcastAsync(CreateEvent("run.canceled", new { runId }), CancellationToken.None);
+                    await BroadcastAsync(CreateEvent("run.canceled", new { runId, sessionId = run.SessionId }), CancellationToken.None);
                     return;
                 }
 
                 if (string.Equals(status, "failed", StringComparison.OrdinalIgnoreCase))
                 {
                     var message = TryGetTurnFailureMessage(result.Turn) ?? "codex 执行失败";
-                    await BroadcastAsync(CreateEvent("run.failed", new { runId, message }), CancellationToken.None);
+                    await BroadcastAsync(CreateEvent("run.failed", new { runId, sessionId = run.SessionId, message }), CancellationToken.None);
                     return;
                 }
 
-                await BroadcastAsync(CreateEvent("run.completed", new { runId, exitCode = 0 }), cts.Token);
+                await BroadcastAsync(CreateEvent("run.completed", new { runId, sessionId = run.SessionId, exitCode = 0 }), cts.Token);
             }
             catch (OperationCanceledException)
             {
-                await BroadcastAsync(CreateEvent("run.canceled", new { runId }), CancellationToken.None);
+                await BroadcastAsync(CreateEvent("run.canceled", new { runId, sessionId = run.SessionId }), CancellationToken.None);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "运行 codex 失败");
-                await BroadcastAsync(CreateEvent("run.failed", new { runId, message = ex.Message }), CancellationToken.None);
+                await BroadcastAsync(CreateEvent("run.failed", new { runId, sessionId = run.SessionId, message = ex.Message }), CancellationToken.None);
             }
             finally
             {
-                _currentRunCts = null;
+                _runs.TryRemove(runId, out _);
 
-                lock (_approvalGate)
+                var activeSessionId = run.SessionId;
+                if (!string.IsNullOrWhiteSpace(activeSessionId)
+                    && _activeRunBySessionId.TryGetValue(activeSessionId, out var activeRunId)
+                    && string.Equals(activeRunId, runId, StringComparison.Ordinal))
                 {
-                    _pendingApprovalTcs = null;
-                    _pendingApprovalRequestId = null;
-                    _pendingApprovalRunId = null;
+                    _activeRunBySessionId.TryRemove(activeSessionId, out _);
+                }
+
+                foreach (var entry in _pendingApprovals)
+                {
+                    if (!string.Equals(entry.Key.runId, runId, StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
+                    if (_pendingApprovals.TryRemove(entry.Key, out var tcs))
+                    {
+                        tcs.TrySetResult(new CodexAppServerApprovalDecision { Decision = "decline" });
+                    }
                 }
 
                 cts.Dispose();
@@ -317,17 +334,67 @@ public sealed class WebSocketHub
         }, CancellationToken.None);
     }
 
-    private async Task HandleRunCancelAsync(string clientId, CancellationToken cancellationToken)
+    private async Task HandleRunCancelAsync(string clientId, BridgeEnvelope envelope, CancellationToken cancellationToken)
     {
-        if (_currentRunCts is null)
+        TryGetString(envelope.Data, "runId", out var runId);
+        runId = string.IsNullOrWhiteSpace(runId) ? null : runId.Trim();
+
+        TryGetString(envelope.Data, "sessionId", out var sessionId);
+        sessionId = NormalizeSessionId(sessionId);
+
+        if (string.IsNullOrWhiteSpace(runId) && string.IsNullOrWhiteSpace(sessionId))
         {
-            await BroadcastAsync(CreateEvent("run.rejected", new { reason = "没有可取消的任务" }), cancellationToken);
+            await BroadcastAsync(CreateEvent("run.rejected", new { clientId, reason = "缺少 runId/sessionId" }), cancellationToken);
             return;
         }
 
-        _currentRunCts.Cancel();
-        await BroadcastAsync(CreateEvent("run.cancel.requested", new { clientId }), cancellationToken);
+        if (string.IsNullOrWhiteSpace(runId) && !string.IsNullOrWhiteSpace(sessionId))
+        {
+            _activeRunBySessionId.TryGetValue(sessionId, out runId);
+        }
+
+        if (string.IsNullOrWhiteSpace(runId) || !_runs.TryGetValue(runId, out var run))
+        {
+            await BroadcastAsync(CreateEvent("run.rejected", new { clientId, sessionId, reason = "没有可取消的任务" }), cancellationToken);
+            return;
+        }
+
+        run.Cts.Cancel();
+        await BroadcastAsync(CreateEvent("run.cancel.requested", new { clientId, runId, sessionId = run.SessionId ?? sessionId }), cancellationToken);
     }
+
+    private Task EmitRunEventAsync(RunContext run, BridgeEnvelope envelope, CancellationToken cancellationToken)
+    {
+        if (string.Equals(envelope.Type, "event", StringComparison.OrdinalIgnoreCase))
+        {
+            if (string.Equals(envelope.Name, "session.created", StringComparison.OrdinalIgnoreCase)
+                && TryGetString(envelope.Data, "sessionId", out var sessionId))
+            {
+                sessionId = NormalizeSessionId(sessionId);
+                if (!string.IsNullOrWhiteSpace(sessionId))
+                {
+                    run.SessionId = sessionId;
+                    _activeRunBySessionId.TryAdd(sessionId, run.RunId);
+                }
+            }
+
+            if (string.Equals(envelope.Name, "turn.started", StringComparison.OrdinalIgnoreCase)
+                && TryGetString(envelope.Data, "threadId", out var threadId))
+            {
+                threadId = NormalizeSessionId(threadId);
+                if (!string.IsNullOrWhiteSpace(threadId))
+                {
+                    run.SessionId = threadId;
+                    _activeRunBySessionId.TryAdd(threadId, run.RunId);
+                }
+            }
+        }
+
+        return BroadcastAsync(envelope, cancellationToken);
+    }
+
+    private static string? NormalizeSessionId(string? sessionId) =>
+        string.IsNullOrWhiteSpace(sessionId) ? null : sessionId.Trim();
 
     private async Task<CodexAppServerApprovalDecision> RequestApprovalAsync(
         string runId,
@@ -339,20 +406,23 @@ public sealed class WebSocketHub
             return new CodexAppServerApprovalDecision { Decision = "decline" };
         }
 
-        TaskCompletionSource<CodexAppServerApprovalDecision> tcs;
-
-        lock (_approvalGate)
+        var requestId = approval.RequestId?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(requestId))
         {
-            if (_pendingApprovalTcs is not null)
-            {
-                _pendingApprovalTcs.TrySetResult(new CodexAppServerApprovalDecision { Decision = "decline" });
-            }
-
-            tcs = new TaskCompletionSource<CodexAppServerApprovalDecision>(TaskCreationOptions.RunContinuationsAsynchronously);
-            _pendingApprovalTcs = tcs;
-            _pendingApprovalRequestId = approval.RequestId;
-            _pendingApprovalRunId = runId;
+            return new CodexAppServerApprovalDecision { Decision = "decline" };
         }
+
+        var key = (runId, requestId);
+        var tcs = new TaskCompletionSource<CodexAppServerApprovalDecision>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        _pendingApprovals.AddOrUpdate(
+            key,
+            tcs,
+            (_, existing) =>
+            {
+                existing.TrySetResult(new CodexAppServerApprovalDecision { Decision = "decline" });
+                return tcs;
+            });
 
         await BroadcastAsync(
             CreateEvent(
@@ -360,7 +430,7 @@ public sealed class WebSocketHub
                 new
                 {
                     runId,
-                    requestId = approval.RequestId,
+                    requestId,
                     kind = approval.Kind,
                     threadId = approval.ThreadId,
                     turnId = approval.TurnId,
@@ -372,12 +442,25 @@ public sealed class WebSocketHub
             cancellationToken);
 
         using var reg = cancellationToken.Register(() => tcs.TrySetCanceled(cancellationToken));
-        return await tcs.Task;
+        try
+        {
+            return await tcs.Task;
+        }
+        finally
+        {
+            _pendingApprovals.TryRemove(key, out _);
+        }
     }
 
     private async Task HandleApprovalRespondAsync(string clientId, BridgeEnvelope envelope, CancellationToken cancellationToken)
     {
-        TryGetString(envelope.Data, "runId", out var runId);
+        if (!TryGetString(envelope.Data, "runId", out var runId) || string.IsNullOrWhiteSpace(runId))
+        {
+            await BroadcastAsync(CreateEvent("run.rejected", new { clientId, reason = "缺少 runId" }), cancellationToken);
+            return;
+        }
+
+        runId = runId.Trim();
 
         if (!TryGetString(envelope.Data, "requestId", out var requestId) || string.IsNullOrWhiteSpace(requestId))
         {
@@ -385,36 +468,17 @@ public sealed class WebSocketHub
             return;
         }
 
+        requestId = requestId.Trim();
+
         if (!TryGetString(envelope.Data, "decision", out var decision) || string.IsNullOrWhiteSpace(decision))
         {
             decision = "decline";
         }
 
-        TaskCompletionSource<CodexAppServerApprovalDecision>? tcs = null;
-
-        lock (_approvalGate)
+        var key = (runId, requestId);
+        if (!_pendingApprovals.TryRemove(key, out var tcs))
         {
-            if (_pendingApprovalTcs is null)
-            {
-                return;
-            }
-
-            if (!string.Equals(_pendingApprovalRequestId, requestId, StringComparison.Ordinal))
-            {
-                return;
-            }
-
-            if (!string.IsNullOrWhiteSpace(_pendingApprovalRunId)
-                && !string.IsNullOrWhiteSpace(runId)
-                && !string.Equals(_pendingApprovalRunId, runId, StringComparison.Ordinal))
-            {
-                return;
-            }
-
-            tcs = _pendingApprovalTcs;
-            _pendingApprovalTcs = null;
-            _pendingApprovalRequestId = null;
-            _pendingApprovalRunId = null;
+            return;
         }
 
         tcs.TrySetResult(new CodexAppServerApprovalDecision { Decision = decision });
@@ -795,7 +859,7 @@ public sealed class WebSocketHub
 
             try
             {
-                await socket.SendAsync(segment, WebSocketMessageType.Text, endOfMessage: true, cancellationToken);
+                await SendAsync(connection, segment, cancellationToken);
             }
             catch (Exception ex)
             {
@@ -831,7 +895,7 @@ public sealed class WebSocketHub
 
             try
             {
-                await socket.SendAsync(segment, WebSocketMessageType.Text, endOfMessage: true, cancellationToken);
+                await SendAsync(connection, segment, cancellationToken);
             }
             catch (Exception ex)
             {
@@ -840,17 +904,60 @@ public sealed class WebSocketHub
         }
     }
 
-    private static Task SendAsync(WebSocket socket, BridgeEnvelope envelope, CancellationToken cancellationToken)
+    private static async Task SendAsync(ClientConnection connection, BridgeEnvelope envelope, CancellationToken cancellationToken)
     {
         var payload = JsonSerializer.Serialize(envelope, BridgeJson.SerializerOptions);
         var bytes = Encoding.UTF8.GetBytes(payload);
-        return SendAsyncCore(socket, bytes, cancellationToken);
+        await SendAsync(connection, new ArraySegment<byte>(bytes), cancellationToken);
     }
 
-    private static async Task SendAsyncCore(WebSocket socket, byte[] bytes, CancellationToken cancellationToken)
+    private static async Task SendAsync(ClientConnection connection, ArraySegment<byte> segment, CancellationToken cancellationToken)
     {
-        await socket.SendAsync(bytes, WebSocketMessageType.Text, endOfMessage: true, cancellationToken);
+        await connection.SendGate.WaitAsync(cancellationToken);
+        try
+        {
+            await connection.Socket.SendAsync(segment, WebSocketMessageType.Text, endOfMessage: true, cancellationToken);
+        }
+        finally
+        {
+            connection.SendGate.Release();
+        }
     }
 
-    private sealed record ClientConnection(WebSocket Socket, bool IsLoopback, string? DeviceId);
+    private sealed class RunContext
+    {
+        public RunContext(string runId, string clientId, string? sessionId, CancellationTokenSource cts)
+        {
+            RunId = runId;
+            ClientId = clientId;
+            SessionId = sessionId;
+            Cts = cts;
+        }
+
+        public string RunId { get; }
+
+        public string ClientId { get; }
+
+        public string? SessionId { get; set; }
+
+        public CancellationTokenSource Cts { get; }
+    }
+
+    private sealed class ClientConnection
+    {
+        public ClientConnection(WebSocket socket, bool isLoopback, string? deviceId)
+        {
+            Socket = socket;
+            IsLoopback = isLoopback;
+            DeviceId = deviceId;
+        }
+
+        public WebSocket Socket { get; }
+
+        public bool IsLoopback { get; }
+
+        public string? DeviceId { get; }
+
+        public SemaphoreSlim SendGate { get; } = new(1, 1);
+    }
 }

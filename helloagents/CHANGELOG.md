@@ -27,6 +27,8 @@
 - 新增上下文用量展示：Chat 页右下角按钮显示上下文用量百分比（无数据为 `-%`），点击后以 Flyout 菜单展示后端连接状态 + `/status` 摘要（5h/周限额进度条；重置时间 `MM-dd HH:mm`；缺失项显示“不可用”）
 - 新增仓库入口文档 `README.md`：项目简介、快速开始、配置与安全、文档索引（指向 `helloagents/wiki`）
 - 新增“连接”功能：WinUI 侧边栏底部新增“连接”页（局域网共享开关/配对二维码/设备列表/撤销）；Bridge Server 支持设备配对与设备令牌鉴权；Android 支持配对并同步会话/消息/流式输出/plan
+- 新增多任务并行：Bridge Server 支持跨会话并行 run（同会话串行闸门），并在关键事件中附带 `sessionId` 便于客户端路由
+- 新增 WinUI 会话状态指示：侧边栏会话项右侧显示运行中 ProgressRing；完成绿点；异常黄点
 
 ### 变更
 - 调整 WinUI 启动窗口体验：增大初始大小并居中；移除最小尺寸限制（允许缩小窗口）
@@ -43,6 +45,7 @@
 - Android：重构 UI 为 Material3 + Navigation-Compose 三模块骨架（会话列表/聊天/连接设备），并抽离连接配置存储与 token 加密
 - 安全：`POST /api/v1/sessions` 与 `DELETE /api/v1/sessions/{sessionId}` 调整为仅回环可用（远程设备使用 WS `chat.send` 建立会话）
 - 连接：记住“允许局域网连接”开关并持久化端口，避免每次启动手动开启与重复配对
+- 调整 WinUI 审批弹窗触发位置：由 ChatPage 迁移到 MainWindow，避免导航离开 ChatPage 时审批不可见
 
 ### 修复
 - 修复 MSIX 调试部署/打包场景下未包含 `bridge-server/` 导致自动启动失败
@@ -71,3 +74,5 @@
 - 修复行内代码中形如 `GET /...` / `POST /...` 的路径被误识别为文件夹的问题
 - 修复 Android 连接设备页提示文案引号错误导致 `:app:compileDebugKotlin` 编译失败
 - 修复会话列表混入“任务标题生成”对话：当首条 user 消息以 `You are a helpful assistant. You will be presented with a user prompt, and your job is to provide a short title for a task that will be created from that prompt.` 开头时，服务端从会话列表中自动过滤（最近/全部会话均不显示）
+- 修复 Bridge Server 全局单任务限制导致无法同时执行多个任务：改为按 `runId` 并发跟踪，并支持 `run.cancel(runId/sessionId)` 定位取消目标
+- 修复 WinUI 切换页面/会话后返回对话“正文为空但仍在更新”的问题：会话输出/计划/运行状态改为全局 Store 缓存并按 `sessionId` 绑定

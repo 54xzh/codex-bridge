@@ -6,7 +6,7 @@
 ## 模块概述
 - **职责:** 消息结构、版本化策略、事件类型定义、错误模型
 - **状态:** 开发中
-- **最后更新:** 2026-01-19
+- **最后更新:** 2026-01-22
 
 ## 规范
 
@@ -41,6 +41,11 @@
 #### 场景: 会话绑定（resume）
 `chat.send` 支持携带 `sessionId` 以续聊历史会话；服务端在首次运行时可通过 `session.created` 事件告知客户端本次运行对应的 `sessionId`。
 当工作区不在 Git 仓库目录内时，`chat.send` 可携带 `skipGitRepoCheck`（等价于 Codex CLI `--skip-git-repo-check`）。
+
+#### 场景: 多任务并行与取消（run）
+- 并行模型：允许跨 `sessionId` 并行；同一 `sessionId` 同时仅允许一个运行中的任务，超出会返回 `run.rejected`
+- `run.cancel`：`{ "runId": "string(optional)", "sessionId": "string(optional)" }`（至少一个）；仅提供 `sessionId` 时取消该会话当前 active run
+- 事件路由：为便于多端归属与 UI 路由，部分事件会附带 `sessionId`（如 `chat.message`、`run.started/run.completed/run.canceled/run.failed`、`run.rejected`）
 
 #### 场景: 多模态输入（图片）
 `chat.send` 支持携带 `images`（data URL 数组），用于将图片作为输入发送给模型；服务端会将其映射到 `codex app-server` 的 `turn/start.input`（`type=image` 且 `url=dataUrl`）。

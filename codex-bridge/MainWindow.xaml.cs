@@ -1,9 +1,13 @@
+using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Dispatching;
+using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Shapes;
 using codex_bridge.Bridge;
 using codex_bridge.Models;
 using codex_bridge.Pages;
+using codex_bridge.State;
 using codex_bridge.ViewModels;
 using System;
 using System.Collections.Generic;
@@ -28,6 +32,9 @@ namespace codex_bridge
         private readonly object _pairingGate = new();
         private readonly Queue<PairingRequestInfo> _pendingPairingRequests = new();
         private bool _pairingDialogOpen;
+        private readonly object _approvalGate = new();
+        private readonly Queue<ApprovalRequestInfo> _pendingApprovalRequests = new();
+        private bool _approvalDialogOpen;
 
         public ObservableCollection<SessionSummaryViewModel> RecentSessions { get; } = new();
 
@@ -38,12 +45,20 @@ namespace codex_bridge
 
             WindowSizing.ApplyStartupSizingAndCenter(this);
 
+            App.ChatStore.Initialize(_dispatcherQueue);
+            App.ChatStore.Attach(App.ConnectionService);
+
             // Load preferences and recent sessions on startup
             _ = InitializeAsync();
 
             App.ConnectionService.EnvelopeReceived += ConnectionService_EnvelopeReceived;
             App.SessionState.CurrentSessionChanged += SessionState_CurrentSessionChanged;
-            Closed += (_, _) => App.SessionState.CurrentSessionChanged -= SessionState_CurrentSessionChanged;
+            App.ChatStore.SessionIndicatorChanged += ChatStore_SessionIndicatorChanged;
+            Closed += (_, _) =>
+            {
+                App.SessionState.CurrentSessionChanged -= SessionState_CurrentSessionChanged;
+                App.ChatStore.SessionIndicatorChanged -= ChatStore_SessionIndicatorChanged;
+            };
             ContentFrame.Navigated += (_, _) => UpdateChatSidebarSelection();
 
             Navigate("chat");
@@ -128,37 +143,73 @@ namespace codex_bridge
                 return;
             }
 
-            if (!string.Equals(envelope.Name, "device.pairing.requested", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(envelope.Name, "device.pairing.requested", StringComparison.OrdinalIgnoreCase))
             {
+                if (envelope.Data.ValueKind != JsonValueKind.Object)
+                {
+                    return;
+                }
+
+                if (!TryGetString(envelope.Data, "requestId", out var requestId) || string.IsNullOrWhiteSpace(requestId))
+                {
+                    return;
+                }
+
+                TryGetString(envelope.Data, "deviceName", out var deviceName);
+                TryGetString(envelope.Data, "platform", out var platform);
+                TryGetString(envelope.Data, "deviceModel", out var deviceModel);
+                TryGetString(envelope.Data, "appVersion", out var appVersion);
+                TryGetString(envelope.Data, "clientIp", out var clientIp);
+
+                _dispatcherQueue.TryEnqueue(() =>
+                {
+                    EnqueuePairingRequest(new PairingRequestInfo(
+                        RequestId: requestId.Trim(),
+                        DeviceName: deviceName?.Trim(),
+                        Platform: platform?.Trim(),
+                        DeviceModel: deviceModel?.Trim(),
+                        AppVersion: appVersion?.Trim(),
+                        ClientIp: clientIp?.Trim()));
+                });
+
                 return;
             }
 
-            if (envelope.Data.ValueKind != JsonValueKind.Object)
+            if (string.Equals(envelope.Name, "approval.requested", StringComparison.OrdinalIgnoreCase))
             {
-                return;
+                if (envelope.Data.ValueKind != JsonValueKind.Object)
+                {
+                    return;
+                }
+
+                if (!TryGetString(envelope.Data, "runId", out var runId) || string.IsNullOrWhiteSpace(runId))
+                {
+                    return;
+                }
+
+                if (!TryGetString(envelope.Data, "requestId", out var requestId) || string.IsNullOrWhiteSpace(requestId))
+                {
+                    return;
+                }
+
+                if (!TryGetString(envelope.Data, "kind", out var kind) || string.IsNullOrWhiteSpace(kind))
+                {
+                    return;
+                }
+
+                var reason = TryGetString(envelope.Data, "reason", out var reasonText) ? reasonText : null;
+                var itemId = TryGetString(envelope.Data, "itemId", out var itemIdText) ? itemIdText : null;
+
+                _dispatcherQueue.TryEnqueue(() =>
+                {
+                    EnqueueApprovalRequest(new ApprovalRequestInfo(
+                        RunId: runId.Trim(),
+                        RequestId: requestId.Trim(),
+                        Kind: kind.Trim(),
+                        Reason: string.IsNullOrWhiteSpace(reason) ? null : reason.Trim(),
+                        ItemId: string.IsNullOrWhiteSpace(itemId) ? null : itemId.Trim()));
+                });
             }
-
-            if (!TryGetString(envelope.Data, "requestId", out var requestId) || string.IsNullOrWhiteSpace(requestId))
-            {
-                return;
-            }
-
-            TryGetString(envelope.Data, "deviceName", out var deviceName);
-            TryGetString(envelope.Data, "platform", out var platform);
-            TryGetString(envelope.Data, "deviceModel", out var deviceModel);
-            TryGetString(envelope.Data, "appVersion", out var appVersion);
-            TryGetString(envelope.Data, "clientIp", out var clientIp);
-
-            _dispatcherQueue.TryEnqueue(() =>
-            {
-                EnqueuePairingRequest(new PairingRequestInfo(
-                    RequestId: requestId.Trim(),
-                    DeviceName: deviceName?.Trim(),
-                    Platform: platform?.Trim(),
-                    DeviceModel: deviceModel?.Trim(),
-                    AppVersion: appVersion?.Trim(),
-                    ClientIp: clientIp?.Trim()));
-            });
         }
 
         private void EnqueuePairingRequest(PairingRequestInfo request)
@@ -253,6 +304,110 @@ namespace codex_bridge
                 }
             }
         }
+
+        private void EnqueueApprovalRequest(ApprovalRequestInfo request)
+        {
+            lock (_approvalGate)
+            {
+                if (_pendingApprovalRequests.Any(r =>
+                        string.Equals(r.RunId, request.RunId, StringComparison.OrdinalIgnoreCase)
+                        && string.Equals(r.RequestId, request.RequestId, StringComparison.OrdinalIgnoreCase)))
+                {
+                    return;
+                }
+
+                _pendingApprovalRequests.Enqueue(request);
+
+                if (_approvalDialogOpen)
+                {
+                    return;
+                }
+
+                _approvalDialogOpen = true;
+            }
+
+            _ = ShowNextApprovalDialogAsync();
+        }
+
+        private async Task ShowNextApprovalDialogAsync()
+        {
+            while (true)
+            {
+                ApprovalRequestInfo? next = null;
+                lock (_approvalGate)
+                {
+                    if (_pendingApprovalRequests.Count > 0)
+                    {
+                        next = _pendingApprovalRequests.Dequeue();
+                    }
+                    else
+                    {
+                        _approvalDialogOpen = false;
+                        return;
+                    }
+                }
+
+                if (next is null)
+                {
+                    continue;
+                }
+
+                var acceptForSessionCheckBox = new CheckBox
+                {
+                    Content = "本会话内自动允许同类操作",
+                    IsChecked = false,
+                };
+
+                var body = new StackPanel { Spacing = 8 };
+                if (!string.IsNullOrWhiteSpace(next.Reason))
+                {
+                    body.Children.Add(new TextBlock { Text = next.Reason, TextWrapping = TextWrapping.Wrap });
+                }
+
+                if (!string.IsNullOrWhiteSpace(next.ItemId))
+                {
+                    body.Children.Add(new TextBlock { Opacity = 0.7, Text = $"itemId: {next.ItemId}" });
+                }
+
+                body.Children.Add(acceptForSessionCheckBox);
+
+                var title = string.Equals(next.Kind, "commandExecution", StringComparison.OrdinalIgnoreCase)
+                    ? "需要批准：执行命令"
+                    : "需要批准：修改文件";
+
+                var dialog = new ContentDialog
+                {
+                    Title = title,
+                    Content = body,
+                    PrimaryButtonText = "允许",
+                    SecondaryButtonText = "拒绝",
+                    CloseButtonText = "取消任务",
+                    DefaultButton = ContentDialogButton.Primary,
+                    XamlRoot = Content.XamlRoot,
+                };
+
+                var result = await dialog.ShowAsync();
+                var decision = result switch
+                {
+                    ContentDialogResult.Primary => acceptForSessionCheckBox.IsChecked == true ? "acceptForSession" : "accept",
+                    ContentDialogResult.Secondary => "decline",
+                    _ => "cancel",
+                };
+
+                try
+                {
+                    await App.ConnectionService.SendCommandAsync(
+                        "approval.respond",
+                        new { runId = next.RunId, requestId = next.RequestId, decision },
+                        CancellationToken.None);
+                }
+                catch
+                {
+                }
+            }
+        }
+
+        private sealed record ApprovalRequestInfo(string RunId, string RequestId, string Kind, string? Reason, string? ItemId);
 
         private static bool TryGetString(JsonElement data, string propertyName, out string? value)
         {
@@ -357,14 +512,11 @@ namespace codex_bridge
 
             foreach (var session in sortedSessions)
             {
+                var indicator = App.ChatStore.GetIndicator(session.Id);
                 var item = new NavigationViewItem
                 {
                     Tag = $"session:{session.Id}",
-                    Content = new TextBlock
-                    {
-                        Text = session.IsPinned ? $"[置顶] {session.Title}" : session.Title,
-                        TextTrimming = TextTrimming.CharacterEllipsis,
-                    },
+                    Content = CreateSessionNavContent(session.IsPinned ? $"[置顶] {session.Title}" : session.Title, indicator),
                     Icon = new SymbolIcon(Symbol.Message),
                     ContextFlyout = CreateSessionContextMenu(session),
                 };
@@ -390,6 +542,80 @@ namespace codex_bridge
             }
 
             UpdateChatSidebarSelection();
+        }
+
+        private void ChatStore_SessionIndicatorChanged(object? sender, string sessionId)
+        {
+            _dispatcherQueue.TryEnqueue(UpdateSidebarSessions);
+        }
+
+        private UIElement CreateSessionNavContent(string title, SessionIndicatorState indicator)
+        {
+            var grid = new Grid
+            {
+                ColumnSpacing = 10,
+            };
+
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var text = new TextBlock
+            {
+                Text = title,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+
+            grid.Children.Add(text);
+
+            FrameworkElement? indicatorElement = CreateIndicatorElement(indicator);
+            if (indicatorElement is not null)
+            {
+                Grid.SetColumn(indicatorElement, 1);
+                grid.Children.Add(indicatorElement);
+            }
+
+            return grid;
+        }
+
+        private FrameworkElement? CreateIndicatorElement(SessionIndicatorState indicator)
+        {
+            if (indicator == SessionIndicatorState.Running)
+            {
+                return new ProgressRing
+                {
+                    IsActive = true,
+                    IsIndeterminate = true,
+                    Width = 14,
+                    Height = 14,
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+            }
+
+            if (indicator == SessionIndicatorState.Completed)
+            {
+                return new Ellipse
+                {
+                    Width = 8,
+                    Height = 8,
+                    Fill = new SolidColorBrush(Colors.LimeGreen),
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+            }
+
+            if (indicator == SessionIndicatorState.Warning)
+            {
+                var brush = Application.Current.Resources["SystemFillColorCautionBrush"] as Brush;
+                return new Ellipse
+                {
+                    Width = 8,
+                    Height = 8,
+                    Fill = brush ?? new SolidColorBrush(Colors.Goldenrod),
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+            }
+
+            return null;
         }
 
         public async Task RefreshRecentSessionsAsync()
@@ -463,12 +689,6 @@ namespace codex_bridge
             App.SessionState.CurrentSessionId = null;
             NavView.SelectedItem = NewChatItem;
             Navigate("chat");
-
-            // Refresh the ChatPage if already on it
-            if (ContentFrame.CurrentSourcePageType == typeof(ChatPage))
-            {
-                ContentFrame.Navigate(typeof(ChatPage));
-            }
         }
 
         private void HandleSelectSession(string sessionId)
@@ -481,12 +701,6 @@ namespace codex_bridge
             }
 
             Navigate("chat");
-
-            // Force refresh if already on chat page
-            if (ContentFrame.CurrentSourcePageType == typeof(ChatPage))
-            {
-                ContentFrame.Navigate(typeof(ChatPage));
-            }
         }
 
         private SessionSummaryViewModel? FindSessionById(string sessionId)
@@ -513,7 +727,7 @@ namespace codex_bridge
                 _ => typeof(ChatPage),
             };
 
-            if (ContentFrame.CurrentSourcePageType == target && tag != "chat")
+            if (ContentFrame.CurrentSourcePageType == target)
             {
                 return;
             }

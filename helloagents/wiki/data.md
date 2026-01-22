@@ -52,6 +52,15 @@
 | startedAt | string | 非空 | 开始时间 |
 | finishedAt | string | 可空 | 结束时间 |
 
+### ChatSessionState（已实现，WinUI）
+| 字段名 | 类型 | 约束 | 说明 |
+|--------|------|------|------|
+| sessionKey | string | 非空 | 会话键：`sessionId` 或 `__newchat__` |
+| activeRunId | string | 可空 | 当前运行中的 runId（用于运行中指示器） |
+| hasCompletedBadge | bool | 非空 | 完成绿点标记（仅在非当前会话提示） |
+| hasWarningBadge | bool | 非空 | 异常黄点标记（仅在非当前会话提示） |
+| indicator | string | 非空 | `none/running/completed/warning`（按优先级计算） |
+
 ---
 
 ## 存储策略（建议）

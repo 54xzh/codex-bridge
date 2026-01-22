@@ -179,21 +179,24 @@ Bridge Server 对外提供两类接口：
 **已实现消息（MVP 骨架）:**
 - command `chat.send`：`{ "prompt": "string(optional)", "images": ["data:image/...;base64,..."] (optional), "sessionId": "uuid(optional)", "workingDirectory": "C:\\path(optional)", "model": "o3(optional)", "sandbox": "workspace-write(optional)", "approvalPolicy": "on-request(optional)", "effort": "high(optional)", "skipGitRepoCheck": false }`
   - 说明：`prompt` 允许为空，但 `prompt/images` 至少其一需要存在
-- command `run.cancel`：`{}`
+- 并行：允许跨 `sessionId` 并行；同一 `sessionId` 同时仅允许一个运行中的任务（超出会返回 `run.rejected`）
+- command `run.cancel`：`{ "runId": "string(optional)", "sessionId": "string(optional)" }`
+  - 说明：`runId/sessionId` 至少其一需要存在；仅提供 `sessionId` 时取消该会话当前 active run
 - command `approval.respond`：`{ "runId": "...", "requestId": "...", "decision": "accept|acceptForSession|decline|cancel" }`
 - 说明：当前运行链路基于 `codex app-server`（JSON-RPC），支持审批请求与流式 delta；`skipGitRepoCheck` 保留用于兼容旧链路/未来回退
 - event `bridge.connected`：`{ "clientId": "..." }`
 - event `session.created`：`{ "runId": "...", "sessionId": "..." }`
-- event `chat.message`：`{ "runId": "...", "role": "user|assistant", "text": "string", "images": ["data:image/...;base64,..."] (optional), "clientId": "..." }`
+- event `chat.message`：`{ "runId": "...", "sessionId": "thread_xxx(optional)", "role": "user|assistant", "text": "string", "images": ["data:image/...;base64,..."] (optional), "clientId": "..." }`
 - event `chat.message.delta`：`{ "runId": "...", "itemId": "item_3", "delta": "..." }`
 - event `approval.requested`：`{ "runId": "...", "requestId": "...", "kind": "commandExecution|fileChange", "threadId": "...", "turnId": "...", "itemId": "...", "reason": "..." }`
-- event `run.started`：`{ "runId": "...", "clientId": "..." }`
+- event `run.started`：`{ "runId": "...", "sessionId": "thread_xxx(optional)", "clientId": "..." }`
 - event `run.plan.updated`：`{ "runId": "...", "threadId": "...", "turnId": "...", "explanation": "...", "plan": [{ "step": "...", "status": "pending|inProgress|completed" }], "updatedAt": "..." }`
 - event `run.command`：`{ "runId": "...", "itemId": "item_0", "command": "...", "status": "inProgress|completed|failed|declined", "exitCode": 0, "output": "..." }`
 - event `run.command.outputDelta`：`{ "runId": "...", "itemId": "item_0", "delta": "..." }`
 - event `run.reasoning`：`{ "runId": "...", "itemId": "item_1", "text": "..." }`
 - event `run.reasoning.delta`：`{ "runId": "...", "itemId": "item_1_summary_0", "textDelta": "..." }`
-- event `run.completed`：`{ "runId": "...", "exitCode": 0 }`
-- event `run.canceled`：`{ "runId": "..." }`
-- event `run.failed`：`{ "runId": "...", "exitCode": 1(optional)", "message": "..." }`
-- event `run.rejected`：`{ "reason": "..." }`
+- event `run.cancel.requested`：`{ "clientId": "...", "runId": "...", "sessionId": "thread_xxx(optional)" }`
+- event `run.completed`：`{ "runId": "...", "sessionId": "thread_xxx(optional)", "exitCode": 0 }`
+- event `run.canceled`：`{ "runId": "...", "sessionId": "thread_xxx(optional)" }`
+- event `run.failed`：`{ "runId": "...", "sessionId": "thread_xxx(optional)", "message": "..." }`
+- event `run.rejected`：`{ "reason": "...", "clientId": "...(optional)", "sessionId": "thread_xxx(optional)" }`

@@ -3,6 +3,7 @@ using CommunityToolkit.WinUI.UI.Controls;
 using codex_bridge.Bridge;
 using codex_bridge.Markdown;
 using codex_bridge.Models;
+using codex_bridge.State;
 using codex_bridge.ViewModels;
 using Microsoft.UI;
 using Microsoft.UI.Dispatching;
@@ -47,47 +48,88 @@ public sealed partial class ChatPage : Page
 
     private readonly DispatcherQueue _dispatcherQueue;
     private readonly HttpClient _httpClient = new();
-    private readonly Dictionary<string, ChatMessageViewModel> _runToMessage = new();
-    private string? _historyLoadedForSessionId;
-    private string? _planLoadedForSessionId;
     private int _autoConnectAttempted;
     private ScrollViewer? _messagesScrollViewer;
     private bool _scrollToBottomPending;
     private bool _forceScrollToBottomOnNextContentUpdate;
-    private bool _isRunning;
+    private bool _handlersAttached;
 
-    public ObservableCollection<ChatMessageViewModel> Messages { get; } = new();
+    public ObservableCollection<ChatMessageViewModel> Messages =>
+        App.ChatStore.GetSessionState(App.SessionState.CurrentSessionId).Messages;
 
     public ObservableCollection<ChatImageViewModel> PendingImages { get; } = new();
 
-    public ObservableCollection<TurnPlanStepViewModel> TurnPlanSteps { get; } = new();
+    public ObservableCollection<TurnPlanStepViewModel> TurnPlanSteps =>
+        App.ChatStore.GetSessionState(App.SessionState.CurrentSessionId).TurnPlanSteps;
 
     public ChatPage()
     {
         InitializeComponent();
         _dispatcherQueue = DispatcherQueue.GetForCurrentThread();
 
-        App.ConnectionService.EnvelopeReceived += ConnectionService_EnvelopeReceived;
-        App.ConnectionService.ConnectionStateChanged += ConnectionService_StateChanged;
-        App.ConnectionService.ConnectionClosed += ConnectionService_ConnectionClosed;
-
         PendingImages.CollectionChanged += PendingImages_CollectionChanged;
 
         Loaded += ChatPage_Loaded;
+        Unloaded += ChatPage_Unloaded;
     }
 
     private async void ChatPage_Loaded(object sender, RoutedEventArgs e)
     {
+        AttachHandlersIfNeeded();
+        App.ChatStore.SetChatPageActive(true);
+
         UpdateConnectionUI();
         ApplySessionStateToUi();
         ApplyConnectionSettingsToUi();
         UpdatePendingImagesUi();
+        UpdateTurnPlanUiFromStore();
         UpdateActionButtonsVisibility();
         EnsureMessagesScrollViewer();
         await EnsureBackendAndConnectAsync();
         await LoadSessionHistoryIfNeededAsync();
         await LoadSessionPlanIfNeededAsync();
+        UpdateTurnPlanUiFromStore();
         await RefreshContextUsageAsync();
+    }
+
+    private void ChatPage_Unloaded(object sender, RoutedEventArgs e)
+    {
+        App.ChatStore.SetChatPageActive(false);
+        DetachHandlersIfNeeded();
+    }
+
+    private void AttachHandlersIfNeeded()
+    {
+        if (_handlersAttached)
+        {
+            return;
+        }
+
+        _handlersAttached = true;
+
+        App.ConnectionService.ConnectionStateChanged += ConnectionService_StateChanged;
+        App.ConnectionService.ConnectionClosed += ConnectionService_ConnectionClosed;
+        App.SessionState.CurrentSessionChanged += SessionState_CurrentSessionChanged;
+        App.ChatStore.SessionContentUpdated += ChatStore_SessionContentUpdated;
+        App.ChatStore.SessionPlanUpdated += ChatStore_SessionPlanUpdated;
+        App.ChatStore.SessionRunStateChanged += ChatStore_SessionRunStateChanged;
+    }
+
+    private void DetachHandlersIfNeeded()
+    {
+        if (!_handlersAttached)
+        {
+            return;
+        }
+
+        _handlersAttached = false;
+
+        App.ConnectionService.ConnectionStateChanged -= ConnectionService_StateChanged;
+        App.ConnectionService.ConnectionClosed -= ConnectionService_ConnectionClosed;
+        App.SessionState.CurrentSessionChanged -= SessionState_CurrentSessionChanged;
+        App.ChatStore.SessionContentUpdated -= ChatStore_SessionContentUpdated;
+        App.ChatStore.SessionPlanUpdated -= ChatStore_SessionPlanUpdated;
+        App.ChatStore.SessionRunStateChanged -= ChatStore_SessionRunStateChanged;
     }
 
     private async Task EnsureBackendAndConnectAsync()
@@ -744,7 +786,9 @@ public sealed partial class ChatPage : Page
     {
         try
         {
-            await App.ConnectionService.SendCommandAsync("run.cancel", new { }, CancellationToken.None);
+            var sessionId = App.SessionState.CurrentSessionId;
+            var runId = App.ChatStore.GetActiveRunId(sessionId);
+            await App.ConnectionService.SendCommandAsync("run.cancel", new { runId, sessionId }, CancellationToken.None);
         }
         catch (Exception ex)
         {
@@ -817,7 +861,8 @@ public sealed partial class ChatPage : Page
             return;
         }
 
-        if (string.Equals(_historyLoadedForSessionId, sessionId, StringComparison.OrdinalIgnoreCase))
+        var sessionState = App.ChatStore.GetSessionState(sessionId);
+        if (sessionState.HasLoadedHistory)
         {
             return;
         }
@@ -854,8 +899,8 @@ public sealed partial class ChatPage : Page
             var json = await response.Content.ReadAsStringAsync(CancellationToken.None);
             var items = JsonSerializer.Deserialize<SessionMessage[]>(json, JsonOptions) ?? Array.Empty<SessionMessage>();
 
-            Messages.Clear();
-            _runToMessage.Clear();
+            var preserved = sessionState.Messages.Where(m => !string.IsNullOrWhiteSpace(m.RunId)).ToList();
+            sessionState.Messages.Clear();
 
             var traceIndex = 0;
             foreach (var item in items)
@@ -898,11 +943,16 @@ public sealed partial class ChatPage : Page
                     }
                 }
 
-                Messages.Add(message);
+                sessionState.Messages.Add(message);
             }
 
-            _historyLoadedForSessionId = sessionId;
-            SetSessionStatus($"会话: {sessionId}（{Messages.Count} 条消息）");
+            foreach (var message in preserved)
+            {
+                sessionState.Messages.Add(message);
+            }
+
+            sessionState.HasLoadedHistory = true;
+            SetSessionStatus($"会话: {sessionId}（{sessionState.Messages.Count} 条消息）");
             await ScrollMessagesToBottomAfterHistoryLoadAsync();
         }
         catch (Exception ex)
@@ -955,21 +1005,6 @@ public sealed partial class ChatPage : Page
         return tcs.Task;
     }
 
-    private void ConnectionService_EnvelopeReceived(object? sender, BridgeEnvelope envelope)
-    {
-        _dispatcherQueue.TryEnqueue(() =>
-        {
-            try
-            {
-                HandleEnvelopeOnUiThread(envelope);
-            }
-            catch (Exception ex)
-            {
-                SetSessionStatus($"处理消息失败: {ex.Message}");
-            }
-        });
-    }
-
     private void ConnectionService_StateChanged(object? sender, EventArgs e)
     {
         _dispatcherQueue.TryEnqueue(UpdateConnectionUI);
@@ -984,91 +1019,60 @@ public sealed partial class ChatPage : Page
         });
     }
 
-    private void HandleEnvelopeOnUiThread(BridgeEnvelope envelope)
+    private void SessionState_CurrentSessionChanged(object? sender, EventArgs e)
     {
-        if (!string.Equals(envelope.Type, "event", StringComparison.OrdinalIgnoreCase))
+        try
+        {
+            Bindings.Update();
+        }
+        catch
+        {
+        }
+
+        ApplySessionStateToUi();
+        UpdateTurnPlanUiFromStore();
+        UpdateActionButtonsVisibility();
+        _ = LoadSessionHistoryIfNeededAsync();
+        _ = LoadSessionPlanIfNeededAsync();
+    }
+
+    private void ChatStore_SessionContentUpdated(object? sender, string sessionKey)
+    {
+        var currentKey = App.ChatStore.GetSessionState(App.SessionState.CurrentSessionId).SessionKey;
+        if (!string.Equals(currentKey, sessionKey, StringComparison.OrdinalIgnoreCase))
         {
             return;
         }
 
         EnsureMessagesScrollViewer();
         var wasAtBottom = IsMessagesScrollAtBottom();
-        var contentUpdated = false;
-
-        switch (envelope.Name)
-        {
-            case "bridge.connected":
-                if (TryGetString(envelope.Data, "clientId", out var clientId))
-                {
-                    SetSessionStatus($"已连接: {clientId}");
-                }
-                break;
-            case "chat.message":
-                HandleChatMessage(envelope.Data);
-                contentUpdated = true;
-                break;
-            case "chat.message.delta":
-                HandleChatMessageDelta(envelope.Data);
-                contentUpdated = true;
-                break;
-            case "run.started":
-                HandleRunStarted(envelope.Data);
-                contentUpdated = true;
-                break;
-            case "session.created":
-                HandleSessionCreated(envelope.Data);
-                break;
-            case "turn.started":
-                break;
-            case "codex.line":
-                HandleCodexLine(envelope.Data);
-                contentUpdated = true;
-                break;
-            case "run.command":
-                HandleRunCommand(envelope.Data);
-                contentUpdated = true;
-                break;
-            case "run.command.outputDelta":
-                HandleRunCommandOutputDelta(envelope.Data);
-                contentUpdated = true;
-                break;
-            case "run.reasoning":
-                HandleRunReasoning(envelope.Data);
-                contentUpdated = true;
-                break;
-            case "run.reasoning.delta":
-                HandleRunReasoningDelta(envelope.Data);
-                contentUpdated = true;
-                break;
-            case "run.plan.updated":
-                HandleRunPlanUpdated(envelope.Data);
-                break;
-            case "approval.requested":
-                _ = HandleApprovalRequestedAsync(envelope.Data);
-                break;
-            case "approval.responded":
-                break;
-            case "run.completed":
-                HandleRunCompleted(envelope.Data);
-                contentUpdated = true;
-                break;
-            case "run.canceled":
-                HandleRunCanceled(envelope.Data);
-                break;
-            case "run.failed":
-                HandleRunFailed(envelope.Data);
-                contentUpdated = true;
-                break;
-            case "run.rejected":
-                HandleRunRejected(envelope.Data);
-                break;
-        }
-
-        if (contentUpdated && (_forceScrollToBottomOnNextContentUpdate || wasAtBottom))
+        if (_forceScrollToBottomOnNextContentUpdate || wasAtBottom)
         {
             _forceScrollToBottomOnNextContentUpdate = false;
             RequestScrollMessagesToBottom();
         }
+    }
+
+    private void ChatStore_SessionPlanUpdated(object? sender, string sessionKey)
+    {
+        var currentKey = App.ChatStore.GetSessionState(App.SessionState.CurrentSessionId).SessionKey;
+        if (!string.Equals(currentKey, sessionKey, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        UpdateTurnPlanUiFromStore();
+    }
+
+    private void ChatStore_SessionRunStateChanged(object? sender, string sessionKey)
+    {
+        var currentKey = App.ChatStore.GetSessionState(App.SessionState.CurrentSessionId).SessionKey;
+        if (!string.Equals(currentKey, sessionKey, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        UpdateActionButtonsVisibility();
     }
 
     private void EnsureMessagesScrollViewer()
@@ -1154,191 +1158,29 @@ public sealed partial class ChatPage : Page
         _messagesScrollViewer.ChangeView(null, _messagesScrollViewer.ScrollableHeight, null, true);
     }
 
-    private void HandleChatMessage(JsonElement data)
+    private void UpdateTurnPlanUiFromStore()
     {
-        if (!TryGetString(data, "role", out var role) || !TryGetString(data, "text", out var text))
+        var session = App.ChatStore.GetSessionState(App.SessionState.CurrentSessionId);
+        var hasSteps = session.TurnPlanSteps.Count > 0;
+        var hasExplanation = !string.IsNullOrWhiteSpace(session.TurnPlanExplanation);
+
+        TurnPlanExplanationText.Text = hasExplanation ? session.TurnPlanExplanation!.Trim() : string.Empty;
+        TurnPlanExplanationText.Visibility = hasExplanation ? Visibility.Visible : Visibility.Collapsed;
+
+        TurnPlanSummaryText.Text = BuildTurnPlanSummary(session.TurnPlanSteps.ToList(), session.TurnPlanUpdatedAt, session.TurnPlanTurnId);
+
+        var visible = hasSteps || hasExplanation;
+        TurnPlanCard.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+
+        if (!visible)
         {
+            TurnPlanExpander.IsExpanded = false;
             return;
         }
 
-        var runId = GetOptionalString(data, "runId");
-        var images = GetOptionalStringArray(data, "images");
-
-        if (!string.IsNullOrWhiteSpace(runId)
-            && string.Equals(role, "assistant", StringComparison.OrdinalIgnoreCase)
-            && _runToMessage.TryGetValue(runId, out var runMessage))
+        if (!TurnPlanExpander.IsExpanded && hasSteps)
         {
-            runMessage.Text = text;
-            runMessage.RenderMarkdown = true;
-            AttachImages(runMessage, images);
-            runMessage.IsTraceExpanded = false;
-            return;
-        }
-
-        var message = new ChatMessageViewModel(role, text, runId);
-        Messages.Add(message);
-        AttachImages(message, images);
-    }
-
-    private void HandleChatMessageDelta(JsonElement data)
-    {
-        if (!TryGetString(data, "runId", out var runId) || !TryGetString(data, "delta", out var delta))
-        {
-            return;
-        }
-
-        var message = GetOrCreateRunMessage(runId);
-        if (string.Equals(message.Text, "思考中…", StringComparison.Ordinal))
-        {
-            message.IsTraceExpanded = false;
-        }
-        message.AppendTextDelta(delta);
-    }
-
-    private void HandleRunStarted(JsonElement data)
-    {
-        if (!TryGetString(data, "runId", out var runId))
-        {
-            return;
-        }
-
-        var message = new ChatMessageViewModel("assistant", "思考中…", runId, renderMarkdown: false);
-        message.IsTraceExpanded = true;
-        _runToMessage[runId] = message;
-        Messages.Add(message);
-        SetSessionStatus($"运行中: {runId}");
-
-        _isRunning = true;
-        UpdateActionButtonsVisibility();
-    }
-
-    private void HandleSessionCreated(JsonElement data)
-    {
-        if (!TryGetString(data, "sessionId", out var sessionId))
-        {
-            return;
-        }
-
-        var workingDirectory = App.ConnectionService.WorkingDirectory;
-        App.SessionState.CurrentSessionCwd = string.IsNullOrWhiteSpace(workingDirectory) ? null : workingDirectory;
-        App.SessionState.CurrentSessionId = sessionId;
-        SetSessionStatus($"会话: {sessionId}");
-    }
-
-    private void HandleCodexLine(JsonElement data)
-    {
-        if (!TryGetString(data, "runId", out var runId) || !TryGetString(data, "payload", out var payload))
-        {
-            return;
-        }
-
-        var message = GetOrCreateRunMessage(runId);
-        message.AppendLine(payload);
-    }
-
-    private void HandleRunCommand(JsonElement data)
-    {
-        if (!TryGetString(data, "runId", out var runId)
-            || !TryGetString(data, "itemId", out var itemId)
-            || !TryGetString(data, "command", out var command))
-        {
-            return;
-        }
-
-        var status = GetOptionalString(data, "status");
-        if (string.IsNullOrWhiteSpace(status))
-        {
-            status = "completed";
-        }
-
-        var output = GetOptionalString(data, "output");
-        var exitCode = TryGetInt32(data, "exitCode", out var parsedExitCode) ? parsedExitCode : (int?)null;
-
-        var message = GetOrCreateRunMessage(runId);
-        message.UpsertCommandTrace(itemId, tool: null, command, status, exitCode, output);
-    }
-
-    private void HandleRunCommandOutputDelta(JsonElement data)
-    {
-        if (!TryGetString(data, "runId", out var runId)
-            || !TryGetString(data, "itemId", out var itemId)
-            || !TryGetString(data, "delta", out var delta))
-        {
-            return;
-        }
-
-        var message = GetOrCreateRunMessage(runId);
-        message.AppendCommandOutputDelta(itemId, delta);
-    }
-
-    private void HandleRunReasoning(JsonElement data)
-    {
-        if (!TryGetString(data, "runId", out var runId)
-            || !TryGetString(data, "itemId", out var itemId)
-            || !TryGetString(data, "text", out var text))
-        {
-            return;
-        }
-
-        var message = GetOrCreateRunMessage(runId);
-        message.UpsertReasoningTrace(itemId, text);
-    }
-
-    private void HandleRunReasoningDelta(JsonElement data)
-    {
-        if (!TryGetString(data, "runId", out var runId)
-            || !TryGetString(data, "itemId", out var itemId)
-            || !TryGetString(data, "textDelta", out var textDelta))
-        {
-            return;
-        }
-
-        var message = GetOrCreateRunMessage(runId);
-        message.AppendReasoningDelta(itemId, textDelta);
-    }
-
-    private void HandleRunPlanUpdated(JsonElement data)
-    {
-        var threadId = GetOptionalString(data, "threadId");
-        var currentSessionId = App.SessionState.CurrentSessionId;
-
-        if (!string.IsNullOrWhiteSpace(threadId)
-            && !string.IsNullOrWhiteSpace(currentSessionId)
-            && !string.Equals(threadId, currentSessionId, StringComparison.OrdinalIgnoreCase))
-        {
-            return;
-        }
-
-        var explanation = GetOptionalString(data, "explanation");
-        var updatedAtText = GetOptionalString(data, "updatedAt");
-        var updatedAt = DateTimeOffset.TryParse(updatedAtText, out var parsedUpdatedAt) ? parsedUpdatedAt : (DateTimeOffset?)null;
-        var turnId = GetOptionalString(data, "turnId");
-
-        var steps = new List<TurnPlanStepViewModel>();
-        if (data.TryGetProperty("plan", out var planProp) && planProp.ValueKind == JsonValueKind.Array)
-        {
-            foreach (var entry in planProp.EnumerateArray())
-            {
-                if (entry.ValueKind != JsonValueKind.Object)
-                {
-                    continue;
-                }
-
-                if (!TryGetString(entry, "step", out var step) || string.IsNullOrWhiteSpace(step))
-                {
-                    continue;
-                }
-
-                TryGetString(entry, "status", out var status);
-                steps.Add(new TurnPlanStepViewModel(step.Trim(), status.Trim()));
-            }
-        }
-
-        ApplyTurnPlan(explanation, steps, updatedAt, turnId);
-
-        if (!string.IsNullOrWhiteSpace(threadId))
-        {
-            _planLoadedForSessionId = threadId;
+            TurnPlanExpander.IsExpanded = true;
         }
     }
 
@@ -1350,7 +1192,8 @@ public sealed partial class ChatPage : Page
             return;
         }
 
-        if (string.Equals(_planLoadedForSessionId, sessionId, StringComparison.OrdinalIgnoreCase))
+        var sessionState = App.ChatStore.GetSessionState(sessionId);
+        if (sessionState.HasLoadedPlan)
         {
             return;
         }
@@ -1376,8 +1219,8 @@ public sealed partial class ChatPage : Page
             using var response = await _httpClient.SendAsync(request, CancellationToken.None);
             if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
             {
-                ClearTurnPlan();
-                _planLoadedForSessionId = sessionId;
+                ClearTurnPlanInStore(sessionState);
+                UpdateTurnPlanUiFromStore();
                 return;
             }
 
@@ -1387,13 +1230,13 @@ public sealed partial class ChatPage : Page
             var snapshot = JsonSerializer.Deserialize<TurnPlanSnapshot>(json, JsonOptions);
             if (snapshot is null)
             {
-                ClearTurnPlan();
-                _planLoadedForSessionId = sessionId;
+                ClearTurnPlanInStore(sessionState);
+                UpdateTurnPlanUiFromStore();
                 return;
             }
 
-            ApplyTurnPlanSnapshot(snapshot);
-            _planLoadedForSessionId = sessionId;
+            ApplyTurnPlanSnapshotToStore(sessionState, snapshot);
+            UpdateTurnPlanUiFromStore();
         }
         catch (Exception ex)
         {
@@ -1401,54 +1244,32 @@ public sealed partial class ChatPage : Page
         }
     }
 
-    private void ApplyTurnPlanSnapshot(TurnPlanSnapshot snapshot)
+    private static void ClearTurnPlanInStore(ChatSessionState sessionState)
     {
-        var steps = snapshot.Plan
-            .Where(entry => entry is not null && !string.IsNullOrWhiteSpace(entry.Step))
-            .Select(entry => new TurnPlanStepViewModel(entry.Step.Trim(), entry.Status?.Trim() ?? string.Empty))
-            .ToList();
-
-        ApplyTurnPlan(snapshot.Explanation, steps, snapshot.UpdatedAt, snapshot.TurnId);
+        sessionState.TurnPlanSteps.Clear();
+        sessionState.TurnPlanExplanation = null;
+        sessionState.TurnPlanUpdatedAt = null;
+        sessionState.TurnPlanTurnId = null;
+        sessionState.HasLoadedPlan = true;
     }
 
-    private void ApplyTurnPlan(string? explanation, IReadOnlyList<TurnPlanStepViewModel> steps, DateTimeOffset? updatedAt, string? turnId)
+    private static void ApplyTurnPlanSnapshotToStore(ChatSessionState sessionState, TurnPlanSnapshot snapshot)
     {
-        TurnPlanSteps.Clear();
-        foreach (var step in steps)
+        sessionState.TurnPlanExplanation = string.IsNullOrWhiteSpace(snapshot.Explanation) ? null : snapshot.Explanation.Trim();
+        sessionState.TurnPlanUpdatedAt = snapshot.UpdatedAt;
+        sessionState.TurnPlanTurnId = string.IsNullOrWhiteSpace(snapshot.TurnId) ? null : snapshot.TurnId.Trim();
+        sessionState.HasLoadedPlan = true;
+
+        sessionState.TurnPlanSteps.Clear();
+        foreach (var entry in snapshot.Plan)
         {
-            TurnPlanSteps.Add(step);
+            if (entry is null || string.IsNullOrWhiteSpace(entry.Step))
+            {
+                continue;
+            }
+
+            sessionState.TurnPlanSteps.Add(new TurnPlanStepViewModel(entry.Step.Trim(), entry.Status?.Trim() ?? string.Empty));
         }
-
-        var hasExplanation = !string.IsNullOrWhiteSpace(explanation);
-        TurnPlanExplanationText.Text = hasExplanation ? explanation!.Trim() : string.Empty;
-        TurnPlanExplanationText.Visibility = hasExplanation ? Visibility.Visible : Visibility.Collapsed;
-
-        var hasSteps = TurnPlanSteps.Count > 0;
-        TurnPlanSummaryText.Text = BuildTurnPlanSummary(TurnPlanSteps, updatedAt, turnId);
-
-        var visible = hasSteps || hasExplanation;
-        TurnPlanCard.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
-
-        if (!visible)
-        {
-            TurnPlanExpander.IsExpanded = false;
-            return;
-        }
-
-        if (!TurnPlanExpander.IsExpanded && hasSteps)
-        {
-            TurnPlanExpander.IsExpanded = true;
-        }
-    }
-
-    private void ClearTurnPlan()
-    {
-        TurnPlanSteps.Clear();
-        TurnPlanExplanationText.Text = string.Empty;
-        TurnPlanExplanationText.Visibility = Visibility.Collapsed;
-        TurnPlanSummaryText.Text = string.Empty;
-        TurnPlanExpander.IsExpanded = false;
-        TurnPlanCard.Visibility = Visibility.Collapsed;
     }
 
     private static string BuildTurnPlanSummary(IReadOnlyList<TurnPlanStepViewModel> steps, DateTimeOffset? updatedAt, string? turnId)
@@ -1559,115 +1380,23 @@ public sealed partial class ChatPage : Page
         }
     }
 
-    private ChatMessageViewModel GetOrCreateRunMessage(string runId)
-    {
-        if (_runToMessage.TryGetValue(runId, out var message))
-        {
-            return message;
-        }
-
-        message = new ChatMessageViewModel("assistant", "思考中…", runId, renderMarkdown: false);
-        message.IsTraceExpanded = true;
-        _runToMessage[runId] = message;
-        Messages.Add(message);
-        return message;
-    }
-
     private void ApplySessionStateToUi()
     {
         var sessionId = App.SessionState.CurrentSessionId;
         if (!string.IsNullOrWhiteSpace(sessionId))
         {
             SetSessionStatus($"会话: {sessionId}");
-        }
-    }
-
-    private void HandleRunCompleted(JsonElement data)
-    {
-        if (!TryGetString(data, "runId", out var runId))
-        {
             return;
         }
 
-        var exitCodeInfo = TryGetInt32(data, "exitCode", out var exitCode) ? $"(exitCode={exitCode})" : string.Empty;
-        var prefix = string.IsNullOrWhiteSpace(exitCodeInfo) ? "完成" : $"完成{exitCodeInfo}";
-        SetSessionStatus($"{prefix}: {runId}");
-
-        if (_runToMessage.TryGetValue(runId, out var message))
-        {
-            message.IsTraceExpanded = false;
-            message.RenderMarkdown = true;
-        }
-
-        _isRunning = false;
-        UpdateActionButtonsVisibility();
-        _ = RefreshContextUsageAsync();
-    }
-
-    private void HandleRunCanceled(JsonElement data)
-    {
-        if (TryGetString(data, "runId", out var runId))
-        {
-            SetSessionStatus($"已取消: {runId}");
-        }
-
-        _isRunning = false;
-        UpdateActionButtonsVisibility();
-        _ = RefreshContextUsageAsync();
-    }
-
-    private void HandleRunFailed(JsonElement data)
-    {
-        if (!TryGetString(data, "runId", out var runId))
-        {
-            return;
-        }
-
-        var hasExitCode = TryGetInt32(data, "exitCode", out var exitCode);
-        var exitCodeInfo = hasExitCode ? $"(exitCode={exitCode})" : string.Empty;
-
-        var hasMessage = TryGetString(data, "message", out var message) && !string.IsNullOrWhiteSpace(message);
-        var statusMessage = hasMessage ? message.Trim() : "未知错误";
-        var prefix = string.IsNullOrWhiteSpace(exitCodeInfo) ? "失败" : $"失败{exitCodeInfo}";
-        SetSessionStatus($"{prefix}: {runId} {statusMessage}".Trim());
-
-        _isRunning = false;
-        UpdateActionButtonsVisibility();
-        _ = RefreshContextUsageAsync();
-
-        if (!hasMessage)
-        {
-            return;
-        }
-
-        if (!_runToMessage.TryGetValue(runId, out var runMessage))
-        {
-            runMessage = new ChatMessageViewModel("assistant", string.Empty, runId, renderMarkdown: false);
-            _runToMessage[runId] = runMessage;
-            Messages.Add(runMessage);
-        }
-
-        if (string.IsNullOrWhiteSpace(runMessage.Text))
-        {
-            runMessage.Text = message.Trim();
-        }
-    }
-
-    private void HandleRunRejected(JsonElement data)
-    {
-        if (TryGetString(data, "reason", out var reason))
-        {
-            SetSessionStatus($"被拒绝: {reason}");
-        }
-
-        _isRunning = false;
-        UpdateActionButtonsVisibility();
+        SetSessionStatus("新聊天");
     }
 
     private void UpdateActionButtonsVisibility()
     {
-        SendButton.Visibility = _isRunning ? Visibility.Collapsed : Visibility.Visible;
-        CancelButton.Visibility = _isRunning ? Visibility.Visible : Visibility.Collapsed;
+        var isRunning = !string.IsNullOrWhiteSpace(App.ChatStore.GetActiveRunId(App.SessionState.CurrentSessionId));
+        SendButton.Visibility = isRunning ? Visibility.Collapsed : Visibility.Visible;
+        CancelButton.Visibility = isRunning ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void UpdateConnectionUI()

@@ -6,7 +6,7 @@
 ## 模块概述
 - **职责:** 会话与运行管理、工作区管理、Codex 进程驱动（app-server JSON-RPC + JSONL 回放解析）、事件广播、鉴权与远程开关
 - **状态:** 开发中
-- **最后更新:** 2026-01-19
+- **最后更新:** 2026-01-22
 
 ## 规范
 
@@ -53,9 +53,10 @@ Bridge Server 需要被包含在应用包的 `bridge-server/` 子目录中；Win
 
 **已实现（MVP 骨架）:**
 - command: `chat.send`（支持 `prompt`/`images`/`sessionId(resume)`/`workingDirectory`/`model`/`sandbox`/`approvalPolicy`/`effort`/`skipGitRepoCheck`）
-- command: `run.cancel`
+- 并行：允许跨 `sessionId` 并行；同一 `sessionId` 同时仅允许一个运行中的任务（超出返回 `run.rejected`）
+- command: `run.cancel`（`{ "runId": "string(optional)", "sessionId": "string(optional)" }`，至少一个；仅提供 `sessionId` 时取消该会话当前 active run）
 - command: `approval.respond`
-- event: `bridge.connected` / `session.created` / `chat.message` / `run.started` / `run.plan.updated` / `run.command` / `run.reasoning` / `run.completed` / `run.canceled` / `run.failed` / `run.rejected`
+- event: `bridge.connected` / `session.created` / `chat.message` / `run.started` / `run.plan.updated` / `run.command` / `run.reasoning` / `run.cancel.requested` / `run.completed` / `run.canceled` / `run.failed` / `run.rejected`
 - event: `approval.requested` / `chat.message.delta` / `run.command.outputDelta` / `run.reasoning.delta`
 - event: `device.pairing.requested` / `device.presence.updated`（连接/配对）
 

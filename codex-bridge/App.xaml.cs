@@ -34,6 +34,7 @@ namespace codex_bridge
         public static AppSessionState SessionState { get; } = new();
         public static ConnectionService ConnectionService { get; } = new();
         public static SessionPreferences SessionPreferences { get; } = new();
+        public static ChatSessionStore ChatStore { get; } = new();
 
         /// <summary>
         /// Initializes the singleton application object.  This is the first line of authored code
