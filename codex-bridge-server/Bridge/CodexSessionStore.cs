@@ -11,6 +11,8 @@ public sealed class CodexSessionStore
     private readonly ILogger<CodexSessionStore> _logger;
     private readonly CodexCliInfo _cliInfo;
     private const string PlaceholderAssistantText = "（未输出正文）";
+    private const string TaskTitleGeneratorPromptPrefix =
+        "You are a helpful assistant. You will be presented with a user prompt, and your job is to provide a short title for a task that will be created from that prompt.";
 
     public CodexSessionStore(ILogger<CodexSessionStore> logger, CodexCliInfo cliInfo)
     {
@@ -920,6 +922,11 @@ public sealed class CodexSessionStore
             return null;
         }
 
+        if (!string.IsNullOrWhiteSpace(firstUserMessageText) && ShouldHideSessionFromLists(firstUserMessageText))
+        {
+            return null;
+        }
+
         if (string.IsNullOrWhiteSpace(firstLine))
         {
             return null;
@@ -1345,6 +1352,17 @@ public sealed class CodexSessionStore
         }
 
         return false;
+    }
+
+    private static bool ShouldHideSessionFromLists(string firstUserMessageText)
+    {
+        if (string.IsNullOrWhiteSpace(firstUserMessageText))
+        {
+            return false;
+        }
+
+        var trimmed = firstUserMessageText.TrimStart();
+        return trimmed.StartsWith(TaskTitleGeneratorPromptPrefix, StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool TryParseMessageLine(

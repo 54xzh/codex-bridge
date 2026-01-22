@@ -70,3 +70,4 @@
 - 修复点击行内代码中的文件夹时可能重复打开资源管理器的问题（点击去重）
 - 修复行内代码中形如 `GET /...` / `POST /...` 的路径被误识别为文件夹的问题
 - 修复 Android 连接设备页提示文案引号错误导致 `:app:compileDebugKotlin` 编译失败
+- 修复会话列表混入“任务标题生成”对话：当首条 user 消息以 `You are a helpful assistant. You will be presented with a user prompt, and your job is to provide a short title for a task that will be created from that prompt.` 开头时，服务端从会话列表中自动过滤（最近/全部会话均不显示）

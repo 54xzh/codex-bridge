@@ -36,7 +36,7 @@ Bridge Server 需要被包含在应用包的 `bridge-server/` 子目录中；Win
 **描述:** 上下文用量摘要（文本；包含 5h限额/周限额/上下文用量；缺失项显示“不可用”；限额重置时间格式 `MM-dd HH:mm`）
 
 ### [GET] /api/v1/sessions
-**描述:** 列出会话（读取 `~/.codex/sessions` 的 `session_meta` 元数据，并提取“首条有效 user 消息”作为标题；会跳过注入上下文）
+**描述:** 列出会话（读取 `~/.codex/sessions` 的 `session_meta` 元数据，并提取“首条有效 user 消息”作为标题；会跳过注入上下文；并过滤掉标题生成类会话：首条 user 消息以 `You are a helpful assistant. You will be presented with a user prompt, and your job is to provide a short title for a task that will be created from that prompt.` 开头）
 
 ### [POST] /api/v1/sessions
 **描述:** 创建会话（写入最小 `session_meta` JSONL 文件；`cwd` 必填且需存在，并写入 Codex 需要的 `cli_version`）

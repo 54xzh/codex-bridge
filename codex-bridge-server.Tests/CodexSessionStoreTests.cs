@@ -9,6 +9,59 @@ namespace codex_bridge_server.Tests;
 public sealed class CodexSessionStoreTests
 {
     [Fact]
+    public void ListRecent_FiltersTaskTitleGeneratorPromptSessions()
+    {
+        const string taskTitlePromptPrefix =
+            "You are a helpful assistant. You will be presented with a user prompt, and your job is to provide a short title for a task that will be created from that prompt.";
+
+        var normalSessionId = Guid.NewGuid().ToString();
+        var filteredSessionId = Guid.NewGuid().ToString();
+
+        var sessionsRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".codex", "sessions");
+        var dir = Path.Combine(sessionsRoot, "tests", "listrecent", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+
+        var normalPath = Path.Combine(dir, $"rollout-test-{normalSessionId}.jsonl");
+        var filteredPath = Path.Combine(dir, $"rollout-test-{filteredSessionId}.jsonl");
+
+        try
+        {
+            File.WriteAllLines(
+                normalPath,
+                new[]
+                {
+                    BuildSessionMetaLine(normalSessionId),
+                    BuildUserMessageLine("hello"),
+                },
+                new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+
+            File.WriteAllLines(
+                filteredPath,
+                new[]
+                {
+                    BuildSessionMetaLine(filteredSessionId),
+                    BuildUserMessageLine($"{taskTitlePromptPrefix}\n\nUser prompt:\nhello"),
+                },
+                new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+
+            var future = DateTime.UtcNow.AddYears(50);
+            File.SetLastWriteTimeUtc(filteredPath, future.AddMinutes(2));
+            File.SetLastWriteTimeUtc(normalPath, future.AddMinutes(1));
+
+            var store = CreateStore();
+            var sessions = store.ListRecent(limit: 10);
+
+            Assert.Contains(sessions, s => string.Equals(s.Id, normalSessionId, StringComparison.Ordinal));
+            Assert.DoesNotContain(sessions, s => string.Equals(s.Id, filteredSessionId, StringComparison.Ordinal));
+        }
+        finally
+        {
+            TryDeleteFile(filteredPath);
+            TryDeleteFile(normalPath);
+        }
+    }
+
+    [Fact]
     public void ReadMessages_FlushesTrailingTraceAsAssistantMessage()
     {
         var sessionId = Guid.NewGuid().ToString();
