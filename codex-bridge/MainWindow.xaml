@@ -45,7 +45,7 @@
 
             <NavigationView.MenuItems>
                 <!-- 新聊天按钮 -->
-                <NavigationViewItem x:Name="NewChatItem" Tag="newchat" SelectsOnInvoked="False">
+                <NavigationViewItem x:Name="NewChatItem" Tag="newchat" SelectsOnInvoked="True">
                     <NavigationViewItem.Content>
                         <TextBlock Text="新聊天" />
                     </NavigationViewItem.Content>

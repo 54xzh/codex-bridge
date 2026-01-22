@@ -24,6 +24,7 @@ namespace codex_bridge
         private readonly DispatcherQueue _dispatcherQueue;
         private int _sessionLimit = 20;
         private bool _hasMoreSessions = true;
+        private readonly SemaphoreSlim _recentSessionsRefreshGate = new(1, 1);
         private readonly object _pairingGate = new();
         private readonly Queue<PairingRequestInfo> _pendingPairingRequests = new();
         private bool _pairingDialogOpen;
@@ -41,8 +42,83 @@ namespace codex_bridge
             _ = InitializeAsync();
 
             App.ConnectionService.EnvelopeReceived += ConnectionService_EnvelopeReceived;
+            App.SessionState.CurrentSessionChanged += SessionState_CurrentSessionChanged;
+            Closed += (_, _) => App.SessionState.CurrentSessionChanged -= SessionState_CurrentSessionChanged;
+            ContentFrame.Navigated += (_, _) => UpdateChatSidebarSelection();
 
             Navigate("chat");
+        }
+
+        private async void SessionState_CurrentSessionChanged(object? sender, EventArgs e)
+        {
+            _dispatcherQueue.TryEnqueue(UpdateChatSidebarSelection);
+
+            var sessionId = App.SessionState.CurrentSessionId;
+            if (string.IsNullOrWhiteSpace(sessionId))
+            {
+                return;
+            }
+
+            if (RecentSessions.Any(s => string.Equals(s.Id, sessionId, StringComparison.Ordinal)))
+            {
+                return;
+            }
+
+            if (!_recentSessionsRefreshGate.Wait(0))
+            {
+                return;
+            }
+
+            try
+            {
+                await LoadRecentSessionsAsync();
+            }
+            catch
+            {
+                // Ignore refresh errors to avoid impacting the current chat flow.
+            }
+            finally
+            {
+                _recentSessionsRefreshGate.Release();
+            }
+        }
+
+        private void UpdateChatSidebarSelection()
+        {
+            if (ContentFrame.CurrentSourcePageType != typeof(ChatPage))
+            {
+                return;
+            }
+
+            var sessionId = App.SessionState.CurrentSessionId;
+            if (string.IsNullOrWhiteSpace(sessionId))
+            {
+                if (!ReferenceEquals(NavView.SelectedItem, NewChatItem))
+                {
+                    NavView.SelectedItem = NewChatItem;
+                }
+                return;
+            }
+
+            var tagToSelect = $"session:{sessionId}";
+            foreach (var menuItem in NavView.MenuItems)
+            {
+                if (menuItem is not NavigationViewItem item)
+                {
+                    continue;
+                }
+
+                if (item.Tag is not string tag || !string.Equals(tag, tagToSelect, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                if (!ReferenceEquals(NavView.SelectedItem, item))
+                {
+                    NavView.SelectedItem = item;
+                }
+                return;
+            }
         }
 
         private void ConnectionService_EnvelopeReceived(object? sender, BridgeEnvelope envelope)
@@ -312,6 +388,8 @@ namespace codex_bridge
                 };
                 NavView.MenuItems.Add(loadMoreItem);
             }
+
+            UpdateChatSidebarSelection();
         }
 
         public async Task RefreshRecentSessionsAsync()
@@ -383,6 +461,7 @@ namespace codex_bridge
         {
             // Clear current session to start fresh
             App.SessionState.CurrentSessionId = null;
+            NavView.SelectedItem = NewChatItem;
             Navigate("chat");
 
             // Refresh the ChatPage if already on it
