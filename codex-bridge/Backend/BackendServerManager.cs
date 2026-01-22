@@ -5,6 +5,8 @@ using System.Diagnostics;
 using System.Net;
 using System.Net.Http;
 using System.Net.Sockets;
+using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -12,7 +14,22 @@ namespace codex_bridge.Backend;
 
 public sealed class BackendServerManager : IAsyncDisposable
 {
+    private sealed class BackendServerPreferences
+    {
+        public bool LanEnabled { get; set; }
+        public int? Port { get; set; }
+    }
+
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        WriteIndented = true,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+    };
+
+    private static readonly Encoding Utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+
     private readonly object _gate = new();
+    private readonly string _preferencesPath;
     private Task? _startTask;
     private CancellationTokenSource? _lifetimeCts;
     private Process? _process;
@@ -32,6 +49,15 @@ public sealed class BackendServerManager : IAsyncDisposable
                 return _lanEnabled;
             }
         }
+    }
+
+    public BackendServerManager()
+    {
+        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        var appDir = Path.Combine(localAppData, "codex-bridge");
+        _preferencesPath = Path.Combine(appDir, "connection_preferences.json");
+
+        TryLoadPreferences();
     }
 
     public Task EnsureStartedAsync()
@@ -57,6 +83,7 @@ public sealed class BackendServerManager : IAsyncDisposable
             return;
         }
 
+        SavePreferences();
         await StopAsync();
         await EnsureStartedAsync();
     }
@@ -69,41 +96,80 @@ public sealed class BackendServerManager : IAsyncDisposable
             _lifetimeCts = lifetimeCts;
         }
 
-        var port = _port ??= GetFreeTcpPort();
-        HttpBaseUri = new Uri($"http://127.0.0.1:{port}/");
-        WebSocketUri = new Uri($"ws://127.0.0.1:{port}/ws");
-
         try
         {
-            var exePath = LocateServerExecutable();
-            var serverDir = Path.GetDirectoryName(exePath) ?? AppContext.BaseDirectory;
-
-            var listenHost = IsLanEnabled ? "0.0.0.0" : "127.0.0.1";
-
-            var startInfo = new ProcessStartInfo
+            for (var attempt = 0; attempt < 2; attempt++)
             {
-                FileName = exePath,
-                Arguments = $"--urls http://{listenHost}:{port} --Bridge:Security:RemoteEnabled={IsLanEnabled.ToString().ToLowerInvariant()}",
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                WorkingDirectory = serverDir,
-            };
-            startInfo.EnvironmentVariables["ASPNETCORE_ENVIRONMENT"] = "Production";
+                var port = GetOrCreatePort(attempt == 1);
+                HttpBaseUri = new Uri($"http://127.0.0.1:{port}/");
+                WebSocketUri = new Uri($"ws://127.0.0.1:{port}/ws");
 
-            var process = new Process
-            {
-                StartInfo = startInfo,
-                EnableRaisingEvents = true,
-            };
+                var exePath = LocateServerExecutable();
+                var serverDir = Path.GetDirectoryName(exePath) ?? AppContext.BaseDirectory;
 
-            process.Start();
+                var listenHost = IsLanEnabled ? "0.0.0.0" : "127.0.0.1";
 
-            lock (_gate)
-            {
-                _process = process;
+                var startInfo = new ProcessStartInfo
+                {
+                    FileName = exePath,
+                    Arguments = $"--urls http://{listenHost}:{port} --Bridge:Security:RemoteEnabled={IsLanEnabled.ToString().ToLowerInvariant()}",
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    WorkingDirectory = serverDir,
+                };
+                startInfo.EnvironmentVariables["ASPNETCORE_ENVIRONMENT"] = "Production";
+
+                var process = new Process
+                {
+                    StartInfo = startInfo,
+                    EnableRaisingEvents = true,
+                };
+
+                process.Start();
+
+                lock (_gate)
+                {
+                    _process = process;
+                }
+
+                try
+                {
+                    await WaitForHealthyAsync(HttpBaseUri, process, lifetimeCts.Token);
+                    SavePreferences();
+                    return;
+                }
+                catch
+                {
+                    try
+                    {
+                        if (!process.HasExited)
+                        {
+                            process.Kill(entireProcessTree: true);
+                            await process.WaitForExitAsync(CancellationToken.None);
+                        }
+                    }
+                    catch
+                    {
+                    }
+                    finally
+                    {
+                        process.Dispose();
+                    }
+
+                    lock (_gate)
+                    {
+                        if (_process == process)
+                        {
+                            _process = null;
+                        }
+                    }
+
+                    if (attempt == 1)
+                    {
+                        throw;
+                    }
+                }
             }
-
-            await WaitForHealthyAsync(HttpBaseUri, process, lifetimeCts.Token);
         }
         catch
         {
@@ -115,6 +181,27 @@ public sealed class BackendServerManager : IAsyncDisposable
 
             throw;
         }
+    }
+
+    private int GetOrCreatePort(bool forceNew)
+    {
+        int? existing;
+        lock (_gate)
+        {
+            existing = _port;
+        }
+
+        var port = forceNew ? null : existing;
+        if (port is null || port <= 0 || port > 65535)
+        {
+            port = GetFreeTcpPort();
+            lock (_gate)
+            {
+                _port = port;
+            }
+        }
+
+        return port.Value;
     }
 
     private static string LocateServerExecutable()
@@ -140,6 +227,64 @@ public sealed class BackendServerManager : IAsyncDisposable
         finally
         {
             listener.Stop();
+        }
+    }
+
+    private void TryLoadPreferences()
+    {
+        try
+        {
+            if (!File.Exists(_preferencesPath))
+            {
+                return;
+            }
+
+            var json = File.ReadAllText(_preferencesPath, Utf8NoBom);
+            var prefs = JsonSerializer.Deserialize<BackendServerPreferences>(json, JsonOptions);
+            if (prefs is null)
+            {
+                return;
+            }
+
+            lock (_gate)
+            {
+                _lanEnabled = prefs.LanEnabled;
+                if (prefs.Port is > 0 and <= 65535)
+                {
+                    _port = prefs.Port;
+                }
+            }
+        }
+        catch
+        {
+        }
+    }
+
+    private void SavePreferences()
+    {
+        BackendServerPreferences snapshot;
+        lock (_gate)
+        {
+            snapshot = new BackendServerPreferences
+            {
+                LanEnabled = _lanEnabled,
+                Port = _port,
+            };
+        }
+
+        try
+        {
+            var dir = Path.GetDirectoryName(_preferencesPath);
+            if (!string.IsNullOrWhiteSpace(dir) && !Directory.Exists(dir))
+            {
+                Directory.CreateDirectory(dir);
+            }
+
+            var json = JsonSerializer.Serialize(snapshot, JsonOptions);
+            File.WriteAllText(_preferencesPath, json, Utf8NoBom);
+        }
+        catch
+        {
         }
     }
 

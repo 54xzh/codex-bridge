@@ -9,7 +9,7 @@
 ### 新增
 - 新增 `codex-bridge-server`（Bridge Server）骨架：`/api/v1/health`、`/ws`、调用 `codex exec --json` 的流式转发
 - 新增 WinUI 端导航与 Chat 页面骨架：连接 `/ws`、发送 `chat.send`、展示 `codex.line`、支持 `run.cancel`
-- 新增 WinUI 启动自动拉起 Bridge Server（随机端口 + health 探测）并默认自动连接（无需手动配置）
+- 新增 WinUI 启动自动拉起 Bridge Server（首次空闲端口 + health 探测，端口持久化复用）并默认自动连接（无需手动配置）
 - 新增会话管理（MVP）：`/api/v1/sessions` 列表/创建，WinUI 会话页，`chat.send(sessionId)` resume 与 `session.created` 事件
 - 新增会话体验增强：会话列表标题取首条 user 消息（截断约 50 字）；Chat 页自动加载会话历史（`/api/v1/sessions/{sessionId}/messages`）
 - 新增运行追踪事件：Bridge Server 解析 `command_execution` / `reasoning` 并广播 `run.command` / `run.reasoning`，WinUI Chat 页以可展开区块展示“执行的命令”和“思考摘要”
@@ -39,7 +39,9 @@
 - 优化上下文用量菜单排版：Flyout 加宽并调整行距/字间距，限额改为进度条可视化
 - 优化 WinUI Markdown 代码块样式：浅色背景/黑色字体/圆角，提高对比度
 - 优化 WinUI Markdown 行内代码样式：可打开文件路径高亮（浅蓝背景/蓝字、圆角、无描边），并修正 `InlineUIContainer` 基线对齐以减少行内“漂移”（含列表场景对齐优化）
+- Android：重构 UI 为 Material3 + Navigation-Compose 三模块骨架（会话列表/聊天/连接设备），并抽离连接配置存储与 token 加密
 - 安全：`POST /api/v1/sessions` 与 `DELETE /api/v1/sessions/{sessionId}` 调整为仅回环可用（远程设备使用 WS `chat.send` 建立会话）
+- 连接：记住“允许局域网连接”开关并持久化端口，避免每次启动手动开启与重复配对
 
 ### 修复
 - 修复 MSIX 调试部署/打包场景下未包含 `bridge-server/` 导致自动启动失败

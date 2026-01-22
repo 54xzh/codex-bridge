@@ -62,6 +62,8 @@
 | 202601211742 | turn_plan_todo | 功能 | ✅已完成（待办计划/计划回填） | [202601211742_turn_plan_todo](2026-01/202601211742_turn_plan_todo/) |
 | 202601211848 | fix_inline_code_path_click | 修复 | ✅已完成（行内代码路径误判与重复打开） | [202601211848_fix_inline_code_path_click](2026-01/202601211848_fix_inline_code_path_click/) |
 | 202601220035 | connections_pairing | 功能 | ✅已完成（连接/配对/设备管理/多端同步） | [202601220035_connections_pairing](2026-01/202601220035_connections_pairing/) |
+| 202601220259 | connections_persist | 修复 | ✅已完成（记住局域网开关/端口持久化） | [202601220259_connections_persist](2026-01/202601220259_connections_persist/) |
+| 202601220211 | android_material3_skeleton | 功能 | ✅已完成（Android Material3 三模块骨架） | [202601220211_android_material3_skeleton](2026-01/202601220211_android_material3_skeleton/) |
 
 ---
 
@@ -123,3 +125,6 @@
 - [202601211742_turn_plan_todo](2026-01/202601211742_turn_plan_todo/) - 待办计划：`run.plan.updated` + `GET /api/v1/sessions/{sessionId}/plan` + WinUI 展示
 - [202601211848_fix_inline_code_path_click](2026-01/202601211848_fix_inline_code_path_click/) - 修复：行内代码点击重复打开/HTTP 路由误判
 - [202601220035_connections_pairing](2026-01/202601220035_connections_pairing/) - 功能：连接（局域网配对/设备列表/撤销/Android 同步）
+- [202601220259_connections_persist](2026-01/202601220259_connections_persist/) - 修复：连接体验（记住局域网开关/端口持久化，避免重复配对）
+- [202601220211_android_material3_skeleton](2026-01/202601220211_android_material3_skeleton/) - Android：Material3 三模块骨架（会话/聊天/连接设备）
+
