@@ -1,4 +1,4 @@
-# codex-bridge
+# codex-relayouter
 
 > Codex CLI 的桌面 GUI 壳 + 本机 Bridge Server，并预留 Android 远程接口实现多端同步。
 

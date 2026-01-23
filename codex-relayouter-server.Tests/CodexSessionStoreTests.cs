@@ -193,7 +193,7 @@ public sealed class CodexSessionStoreTests
     }
 
     private static string BuildSessionMetaLine(string sessionId) =>
-        $"{{\"timestamp\":\"{DateTimeOffset.UtcNow:O}\",\"type\":\"session_meta\",\"payload\":{{\"id\":\"{sessionId}\",\"timestamp\":\"{DateTimeOffset.UtcNow:O}\",\"cwd\":\"C:\\\\test\",\"originator\":\"codex-bridge-test\",\"cli_version\":\"0.0.0\",\"instructions\":\"\"}}}}";
+        $"{{\"timestamp\":\"{DateTimeOffset.UtcNow:O}\",\"type\":\"session_meta\",\"payload\":{{\"id\":\"{sessionId}\",\"timestamp\":\"{DateTimeOffset.UtcNow:O}\",\"cwd\":\"C:\\\\test\",\"originator\":\"codex-relayouter-test\",\"cli_version\":\"0.0.0\",\"instructions\":\"\"}}}}";
 
     private static string BuildUserMessageLine(string text) =>
         $"{{\"timestamp\":\"{DateTimeOffset.UtcNow:O}\",\"type\":\"response_item\",\"payload\":{{\"type\":\"message\",\"role\":\"user\",\"content\":[{{\"type\":\"input_text\",\"text\":{JsonString(text)}}}]}}}}";

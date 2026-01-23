@@ -99,9 +99,8 @@ public sealed class DevicePairingAndAuthTests
 
     private static string GetTempFilePath()
     {
-        var dir = Path.Combine(Path.GetTempPath(), "codex-bridge-tests", Guid.NewGuid().ToString("N"));
+        var dir = Path.Combine(Path.GetTempPath(), "codex-relayouter-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(dir);
         return Path.Combine(dir, "paired-devices.json");
     }
 }
-

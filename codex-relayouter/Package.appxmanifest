@@ -16,7 +16,7 @@
   <mp:PhoneIdentity PhoneProductId="49c5f432-0255-43fc-ba91-e9da1e070b17" PhonePublisherId="00000000-0000-0000-0000-000000000000"/>
 
   <Properties>
-    <DisplayName>codex-bridge</DisplayName>
+    <DisplayName>codex-relayouter</DisplayName>
     <PublisherDisplayName>54xzh</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
   </Properties>
@@ -35,8 +35,8 @@
       Executable="$targetnametoken$.exe"
       EntryPoint="$targetentrypoint$">
       <uap:VisualElements
-        DisplayName="codex-bridge"
-        Description="codex-bridge"
+        DisplayName="codex-relayouter"
+        Description="codex-relayouter"
         BackgroundColor="transparent"
         Square150x150Logo="Assets\Square150x150Logo.png"
         Square44x44Logo="Assets\Square44x44Logo.png">

@@ -19,6 +19,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\\codex-bridge-common\\codex-bridge-common.csproj" />
+    <ProjectReference Include="..\\codex-relayouter-common\\codex-relayouter-common.csproj" />
   </ItemGroup>
 </Project>

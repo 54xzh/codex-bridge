@@ -54,7 +54,7 @@ public sealed class BackendServerManager : IAsyncDisposable
     public BackendServerManager()
     {
         var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        var appDir = Path.Combine(localAppData, "codex-bridge");
+        var appDir = Path.Combine(localAppData, "codex-relayouter");
         _preferencesPath = Path.Combine(appDir, "connection_preferences.json");
 
         TryLoadPreferences();
@@ -207,7 +207,7 @@ public sealed class BackendServerManager : IAsyncDisposable
     private static string LocateServerExecutable()
     {
         var baseDir = AppContext.BaseDirectory;
-        var candidate = Path.Combine(baseDir, "bridge-server", "codex-bridge-server.exe");
+        var candidate = Path.Combine(baseDir, "bridge-server", "codex-relayouter-server.exe");
         if (File.Exists(candidate))
         {
             return candidate;

@@ -204,7 +204,7 @@ public sealed class ConnectionService : IAsyncDisposable
             baseDir = Environment.GetEnvironmentVariable("LOCALAPPDATA") ?? string.Empty;
         }
 
-        return Path.Combine(baseDir, "codex-bridge", "recent-cwd.json");
+        return Path.Combine(baseDir, "codex-relayouter", "recent-cwd.json");
     }
 
     private void TrackRecentWorkingDirectory(string? workingDirectory)

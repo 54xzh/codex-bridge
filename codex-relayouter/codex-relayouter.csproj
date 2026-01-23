@@ -3,6 +3,7 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <AssemblyName>codex-relayouter</AssemblyName>
     <RootNamespace>codex_bridge</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <Platforms>x86;x64;ARM64</Platforms>
@@ -29,7 +30,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\codex-bridge-common\codex-bridge-common.csproj" />
+    <ProjectReference Include="..\codex-relayouter-common\codex-relayouter-common.csproj" />
   </ItemGroup>
 
   <!--
@@ -69,10 +70,10 @@
       <BridgeServerBuildPlatform>Any CPU</BridgeServerBuildPlatform>
     </PropertyGroup>
 
-    <MSBuild Projects="$(MSBuildProjectDirectory)\..\codex-bridge-server\codex-bridge-server.csproj" Targets="Build" Properties="Configuration=$(Configuration);Platform=$(BridgeServerBuildPlatform)" />
+    <MSBuild Projects="$(MSBuildProjectDirectory)\..\codex-relayouter-server\codex-relayouter-server.csproj" Targets="Build" Properties="Configuration=$(Configuration);Platform=$(BridgeServerBuildPlatform)" />
 
     <PropertyGroup>
-      <BridgeServerOutputDir>$(MSBuildProjectDirectory)\..\codex-bridge-server\bin\$(BridgeServerBuildPlatform)\$(Configuration)\net8.0\</BridgeServerOutputDir>
+      <BridgeServerOutputDir>$(MSBuildProjectDirectory)\..\codex-relayouter-server\bin\$(BridgeServerBuildPlatform)\$(Configuration)\net8.0\</BridgeServerOutputDir>
       <BridgeServerDestDir>$(OutDir)bridge-server\</BridgeServerDestDir>
       <BridgeServerAppxDestDir>$(OutDir)AppX\bridge-server\</BridgeServerAppxDestDir>
     </PropertyGroup>

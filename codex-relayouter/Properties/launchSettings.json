@@ -1,9 +1,9 @@
 {
   "profiles": {
-    "codex-bridge (Package)": {
+    "codex-relayouter (Package)": {
       "commandName": "MsixPackage"
     },
-    "codex-bridge (Unpackaged)": {
+    "codex-relayouter (Unpackaged)": {
       "commandName": "Project"
     }
   }

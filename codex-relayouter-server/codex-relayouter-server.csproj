@@ -4,6 +4,7 @@
     <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>codex-relayouter-server</AssemblyName>
     <RootNamespace>codex_bridge_server</RootNamespace>
   </PropertyGroup>
 

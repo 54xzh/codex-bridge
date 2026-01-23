@@ -7,7 +7,7 @@
 ## [Unreleased]
 
 ### 新增
-- 新增 `codex-bridge-server`（Bridge Server）骨架：`/api/v1/health`、`/ws`、调用 `codex exec --json` 的流式转发
+- 新增 `codex-relayouter-server`（Bridge Server）骨架：`/api/v1/health`、`/ws`、调用 `codex exec --json` 的流式转发
 - 新增 WinUI 端导航与 Chat 页面骨架：连接 `/ws`、发送 `chat.send`、展示 `codex.line`、支持 `run.cancel`
 - 新增 WinUI 启动自动拉起 Bridge Server（首次空闲端口 + health 探测，端口持久化复用）并默认自动连接（无需手动配置）
 - 新增会话管理（MVP）：`/api/v1/sessions` 列表/创建，WinUI 会话页，`chat.send(sessionId)` resume 与 `session.created` 事件
@@ -31,6 +31,7 @@
 - 新增 WinUI 会话状态指示：侧边栏会话项右侧显示运行中 ProgressRing；完成绿点；异常黄点
 
 ### 变更
+- 项目更名：`codex-bridge` → `codex-relayouter`（更新文档与应用展示名、配对二维码链接 scheme、本地数据目录等，避免与同名项目混淆）
 - 调整 WinUI 启动窗口体验：增大初始大小并居中；移除最小尺寸限制（允许缩小窗口）
 - 优化 WinUI Chat 页执行命令展示：命令块点击展开输出，移除独立的“输出”折叠块
 - 优化 WinUI Chat 页 Trace 交互：运行中默认展开“执行过程”，最新思考摘要自动展开；开始输出正文后自动折叠“执行过程”

@@ -229,7 +229,7 @@ public sealed class PairedDeviceStore
             baseDir = Environment.GetEnvironmentVariable("LOCALAPPDATA") ?? string.Empty;
         }
 
-        return Path.Combine(baseDir, "codex-bridge", "paired-devices.json");
+        return Path.Combine(baseDir, "codex-relayouter", "paired-devices.json");
     }
 
     private static string GenerateToken()
@@ -301,4 +301,3 @@ public sealed record PairedDeviceRegistrationRequest(
 public sealed record PairedDeviceRegistration(
     string DeviceId,
     string DeviceToken);
-

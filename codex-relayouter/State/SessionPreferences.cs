@@ -30,7 +30,7 @@ public sealed class SessionPreferences
     public SessionPreferences()
     {
         var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        var appDir = Path.Combine(localAppData, "codex-bridge");
+        var appDir = Path.Combine(localAppData, "codex-relayouter");
         _filePath = Path.Combine(appDir, "session_preferences.json");
     }
 

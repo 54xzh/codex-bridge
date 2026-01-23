@@ -78,7 +78,7 @@ Bridge Server 需要被包含在应用包的 `bridge-server/` 子目录中；Win
 ## 连接与配对（局域网）
 - 远程访问默认关闭；当 `Bridge:Security:RemoteEnabled=true` 且监听地址允许局域网访问时，远程设备可通过“配对邀请码 + 本机确认”完成授权。
 - 设备令牌（deviceToken）为每台设备独立签发，仅首次配对下发；服务端仅持久化哈希，并支持逐设备撤销。
-- 已配对设备存储（默认）：`%LOCALAPPDATA%\\codex-bridge\\paired-devices.json`
+- 已配对设备存储（默认）：`%LOCALAPPDATA%\\codex-relayouter\\paired-devices.json`
 
 ## 变更历史
 - [202601172220_codex_gui_shell](../../history/2026-01/202601172220_codex_gui_shell/) - Bridge Server 骨架（health/ws/codex runner）

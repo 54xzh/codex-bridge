@@ -22,7 +22,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\\codex-bridge-server\\codex-bridge-server.csproj" />
+    <ProjectReference Include="..\\codex-relayouter-server\\codex-relayouter-server.csproj" />
   </ItemGroup>
 
 </Project>

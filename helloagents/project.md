@@ -11,7 +11,7 @@
 ---
 
 ## 开发约定
-- **解决方案结构:** `codex-bridge`（WinUI3）+ `codex-bridge-server`（后端服务）+ `codex-bridge-shared`（协议/DTO，可选）
+- **解决方案结构:** `codex-relayouter`（WinUI3）+ `codex-relayouter-server`（后端服务）+ `codex-relayouter-shared`（协议/DTO，可选）
 - **命名约定:** C# 使用 PascalCase；文件夹/项目名使用 kebab-case
 - **异步规范:** I/O 全部使用 `async/await`，避免阻塞 UI 线程
 - **序列化:** .NET 侧统一使用 `System.Text.Json`；Android 侧 MVP 使用 Gson（协议字段统一采用 camelCase）

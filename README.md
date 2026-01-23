@@ -1,6 +1,7 @@
-# codex-bridge
+# codex-relayouter
 
 > Codex CLI 的桌面 GUI 壳 + 本机 Bridge Server。当前以 Windows（WinUI 3）为主，并预留 Android/远程接口用于多端同步查看与控制同一会话。
+
 
 ---
 
@@ -21,8 +22,8 @@
 
 ## 目录结构
 
-- [`codex-bridge/`](codex-bridge/)：Windows 客户端（.NET 8 / WinUI 3）
-- [`codex-bridge-server/`](codex-bridge-server/)：Bridge Server（.NET 8 / ASP.NET Core）
+- [`codex-relayouter/`](codex-relayouter/)：Windows 客户端（.NET 8 / WinUI 3）
+- [`codex-relayouter-server/`](codex-relayouter-server/)：Bridge Server（.NET 8 / ASP.NET Core）
 - [`helloagents/`](helloagents/)：项目知识库（SSOT：概述/架构/API/数据/模块文档/变更历史）
 
 ---
@@ -38,14 +39,14 @@
 
 ### 运行（推荐：WinUI 自动拉起后端）
 
-1. 使用 Visual Studio 打开 `codex-bridge.slnx`
-2. 启动项目选择 `codex-bridge`（建议 x64）
+1. 使用 Visual Studio 打开 `codex-relayouter.slnx`
+2. 启动项目选择 WinUI 客户端（目录 `codex-relayouter/`，建议 x64）
 3. F5 启动：应用会从输出目录的 `bridge-server/` 中拉起后端并自动连接（随机端口 + `/api/v1/health` 探测）
 
 ### 独立启动后端（可选）
 
 ```powershell
-dotnet run --project .\codex-bridge-server\codex-bridge-server.csproj -- --urls http://127.0.0.1:5000
+dotnet run --project .\codex-relayouter-server\codex-relayouter-server.csproj -- --urls http://127.0.0.1:5000
 ```
 
 然后在 WinUI 设置页将 WS 地址设置为 `ws://127.0.0.1:5000/ws`。
@@ -54,7 +55,7 @@ dotnet run --project .\codex-bridge-server\codex-bridge-server.csproj -- --urls 
 
 ## 配置与安全
 
-- Bridge Server 配置：[`codex-bridge-server/appsettings.json`](codex-bridge-server/appsettings.json)
+- Bridge Server 配置：[`codex-relayouter-server/appsettings.json`](codex-relayouter-server/appsettings.json)
   - `Bridge:Security:RemoteEnabled` 默认 `false`（仅允许回环）
   - 若开启远程访问：务必设置 `Bridge:Security:BearerToken`，并谨慎配置监听地址与网络边界
 - Codex 模型/思考深度：WinUI 会读取/写回 `~/.codex/config.toml`（键：`model`、`model_reasoning_effort`）

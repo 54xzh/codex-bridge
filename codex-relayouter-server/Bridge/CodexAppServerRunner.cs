@@ -106,7 +106,7 @@ public sealed class CodexAppServerRunner
         {
             _ = await SendRequestAsync(
                 "initialize",
-                new { clientInfo = new { name = "codex-bridge-server", version = "0.0" } },
+                new { clientInfo = new { name = "codex-relayouter-server", version = "0.0" } },
                 ct);
         }
 

@@ -197,7 +197,7 @@ public sealed partial class ConnectionsPage : Page
 
         var port = baseUri.Port;
         var lanBaseUrl = $"http://{ip}:{port}/";
-        _currentPairingUri = $"codex-bridge://pair?baseUrl={Uri.EscapeDataString(lanBaseUrl)}&pairingCode={Uri.EscapeDataString(_currentPairingCode)}";
+        _currentPairingUri = $"codex-relayouter://pair?baseUrl={Uri.EscapeDataString(lanBaseUrl)}&pairingCode={Uri.EscapeDataString(_currentPairingCode)}";
 
         try
         {
