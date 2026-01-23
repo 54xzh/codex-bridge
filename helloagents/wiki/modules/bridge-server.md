@@ -62,6 +62,7 @@ Bridge Server 需要被包含在应用包的 `bridge-server/` 子目录中；Win
 
 **说明:**
 - 运行链路改为 `codex app-server`（JSON-RPC over stdio）：支持审批 request/response 与 delta 流式事件
+- 为支持已配置的 MCP：启动/恢复 thread 后会调用 `config/mcpServer/reload`，并在 turn 开始前预热 `mcpServerStatus/list`（避免首个 turn 看不到工具）；当选择 `workspace-write` 时，`sandboxPolicy.networkAccess` 默认开启
 - `commandExecution` / `reasoning` / `agentMessage` 会被映射为 `run.command` / `run.reasoning` / `chat.message`，并额外广播 delta 事件用于前端实时渲染
 - 会话回放时，服务端会从 `~/.codex/sessions` 中解析 `agent_reasoning` 与工具调用（如 `shell_command`），并以 `trace` 字段附加到对应的 assistant 消息；同时解析 `input_image/output_image` 并返回 `images`（data URL）
 

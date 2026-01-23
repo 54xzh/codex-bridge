@@ -110,6 +110,146 @@ public sealed class CodexAppServerRunner
                 ct);
         }
 
+        async Task ReloadMcpServerConfigBestEffortAsync(CancellationToken ct)
+        {
+            try
+            {
+                _ = await SendRequestAsync("config/mcpServer/reload", @params: new { }, ct);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogInformation(ex, "MCP server 配置重载失败（将继续运行，不影响非 MCP 任务）");
+            }
+        }
+
+        async Task WarmupMcpServersBestEffortAsync(CancellationToken ct)
+        {
+            try
+            {
+                // 某些 MCP server（例如 npx 启动）需要一点时间完成拉起并返回 tools 列表。
+                // 为避免首个 turn 开始时模型“看不到”工具，这里做一次轻量预热（有超时上限，失败不阻断）。
+                var startedAt = DateTimeOffset.UtcNow;
+                var attempt = 0;
+                var delayMs = 150;
+
+                while (!ct.IsCancellationRequested)
+                {
+                    attempt++;
+
+                    var status = await SendRequestAsync(
+                        "mcpServerStatus/list",
+                        new { cursor = (string?)null, limit = 100 },
+                        ct);
+
+                    var (serverCount, toolCount) = CountMcpServersAndTools(status);
+                    if (toolCount > 0)
+                    {
+                        _logger.LogInformation("MCP 已就绪: servers={ServerCount} tools={ToolCount} attempts={Attempts}", serverCount, toolCount, attempt);
+                        return;
+                    }
+
+                    // 无配置时直接返回；避免每次 turn 额外等待。
+                    if (serverCount == 0)
+                    {
+                        return;
+                    }
+
+                    var elapsed = DateTimeOffset.UtcNow - startedAt;
+                    if (elapsed > TimeSpan.FromSeconds(6))
+                    {
+                        _logger.LogInformation("MCP 预热超时: servers={ServerCount} tools={ToolCount} attempts={Attempts}", serverCount, toolCount, attempt);
+                        return;
+                    }
+
+                    await Task.Delay(delayMs, ct);
+                    delayMs = Math.Min(delayMs * 2, 800);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogInformation(ex, "MCP 预热失败（将继续运行，不影响非 MCP 任务）");
+            }
+        }
+
+        static (int serverCount, int toolCount) CountMcpServersAndTools(JsonElement status)
+        {
+            var serverCount = 0;
+            var toolCount = 0;
+
+            if (status.ValueKind != JsonValueKind.Object)
+            {
+                return (serverCount, toolCount);
+            }
+
+            if (!status.TryGetProperty("data", out var data))
+            {
+                return (serverCount, toolCount);
+            }
+
+            if (data.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var server in data.EnumerateArray())
+                {
+                    if (server.ValueKind != JsonValueKind.Object)
+                    {
+                        continue;
+                    }
+
+                    serverCount++;
+                    if (!server.TryGetProperty("tools", out var tools))
+                    {
+                        continue;
+                    }
+
+                    toolCount += tools.ValueKind switch
+                    {
+                        JsonValueKind.Object => tools.EnumerateObject().Count(),
+                        JsonValueKind.Array => tools.GetArrayLength(),
+                        _ => 0,
+                    };
+                }
+
+                return (serverCount, toolCount);
+            }
+
+            // 兼容可能返回对象结构的实现：data.servers[].tools
+            if (data.ValueKind == JsonValueKind.Object
+                && data.TryGetProperty("servers", out var servers)
+                && servers.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var server in servers.EnumerateArray())
+                {
+                    if (server.ValueKind != JsonValueKind.Object)
+                    {
+                        continue;
+                    }
+
+                    serverCount++;
+                    if (!server.TryGetProperty("tools", out var tools))
+                    {
+                        continue;
+                    }
+
+                    toolCount += tools.ValueKind switch
+                    {
+                        JsonValueKind.Object => tools.EnumerateObject().Count(),
+                        JsonValueKind.Array => tools.GetArrayLength(),
+                        _ => 0,
+                    };
+                }
+            }
+
+            return (serverCount, toolCount);
+        }
+
         async Task<string> EnsureThreadAsync(CancellationToken ct)
         {
             if (!string.IsNullOrWhiteSpace(request.SessionId))
@@ -679,6 +819,8 @@ public sealed class CodexAppServerRunner
         await InitializeAsync(cancellationToken);
 
         currentThreadId = await EnsureThreadAsync(cancellationToken);
+        await ReloadMcpServerConfigBestEffortAsync(cancellationToken);
+        await WarmupMcpServersBestEffortAsync(cancellationToken);
 
         var (turnId, initialTurn) = await StartTurnAsync(currentThreadId, cancellationToken);
         currentTurnId = turnId;
@@ -784,7 +926,7 @@ public sealed class CodexAppServerRunner
             {
                 type = "workspaceWrite",
                 writableRoots = string.IsNullOrWhiteSpace(workingDirectory) ? Array.Empty<string>() : new[] { workingDirectory },
-                networkAccess = false,
+                networkAccess = true,
                 excludeTmpdirEnvVar = false,
                 excludeSlashTmp = false,
             },

@@ -72,6 +72,7 @@
 - 修复 Chat 页显示 Codex `--json` 控制事件（thread/turn/...）：后端解析并仅广播真实助手消息
 - 修复 Chat 页“执行的命令/思考摘要”区块不显示：为 `x:Bind` 增加 `Mode=OneWay` 以支持运行时更新，并在运行开始时提示“思考中…”
 - 修复 workspace-write 模式无法请求权限：修正 app-server(JSON-RPC) 消息分类逻辑，避免将带 `method` 的 `requestApproval` server request 误判为 response 丢弃，从而确保可正常转发 `approval.requested` 并回传 `approval.respond` 的用户决定
+- 修复已配置 MCP 在 app-server 链路下不生效：启动 thread 后调用 `config/mcpServer/reload` 并预热 `mcpServerStatus/list`（避免首个 turn 看不到工具），同时在 `workspace-write` 的 `sandboxPolicy` 中启用 `networkAccess`
 - 修复图片发送失败提示不明确/部分格式不兼容：WinUI 将剪贴板/BMP 图片转为 PNG（避免 `image/bmp` 导致失败），并在 `turn.status=failed` 时透出 `turn.error.message`
 - 修复回复未完整输出正文时重启后会话回放丢失记录：服务端兼容 `event_msg.agent_message` 并在末尾 trace 兜底刷出占位 assistant 消息；WinUI 历史加载不再过滤 trace-only 消息
 - 修复 WinUI Markdown 渲染时，带缩进的无序列表（如 `  - item`）可能无法被识别为列表的问题
