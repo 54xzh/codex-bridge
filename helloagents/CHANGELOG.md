@@ -90,7 +90,12 @@
 - 修复点击行内代码中的文件夹时可能重复打开资源管理器的问题（点击去重）
 - 修复行内代码中形如 `GET /...` / `POST /...` 的路径被误识别为文件夹的问题
 - 修复 Android 连接设备页提示文案引号错误导致 `:app:compileDebugKotlin` 编译失败
+- 修复 Android Chat 页执行计划仅展示前 5 项导致无法看到多个进行中步骤：改为可滚动展示全量计划，并为 `pending/inProgress/completed/failed` 提供状态标签（兼容 `in_progress`）
+- 修复 Android 新会话在 `session.created` 补齐 `sessionId` 后清空并重载历史导致“无正文输出/（未输出正文）”占位显示：保留本地流式状态并在 UI 层隐藏占位文本
+- 修复 Android 会话列表无法实时展示多个运行中会话：会话列表页保持 WS 常驻连接，并按 `run.active.snapshot` + run 生命周期事件显示 Running/Completed/Warning 指示器（对齐 Windows）
+- 修复 Android 进入执行中的会话后无法及时接上增量内容：服务端在 run 相关事件中补齐 `sessionId`（如 `chat.message.delta` / `run.command` / `run.reasoning` 等），客户端据此完成路由与更新
 - 修复会话列表混入“任务标题生成”对话：当首条 user 消息以 `You are a helpful assistant. You will be presented with a user prompt, and your job is to provide a short title for a task that will be created from that prompt.` 开头时，服务端从会话列表中自动过滤（最近/全部会话均不显示）
 - 修复 Bridge Server 全局单任务限制导致无法同时执行多个任务：改为按 `runId` 并发跟踪，并支持 `run.cancel(runId/sessionId)` 定位取消目标
+- 修复 `codex exec --json` 链路下 `item.started(command_execution)` 默认状态使用 `in_progress` 与协议不一致：统一为 `inProgress`
 - 修复 WinUI 切换页面/会话后返回对话“正文为空但仍在更新”的问题：会话输出/计划/运行状态改为全局 Store 缓存并按 `sessionId` 绑定
 - 修复 WinUI 切换会话时消息列表动画异常：会话切换改为使用 Frame 原生导航过渡（NavigationView RecommendedNavigationTransitionInfo），并禁用批量 ItemContainerTransitions 入场动画以避免闪烁

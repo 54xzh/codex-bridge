@@ -45,7 +45,15 @@
 #### 场景: 多任务并行与取消（run）
 - 并行模型：允许跨 `sessionId` 并行；同一 `sessionId` 同时仅允许一个运行中的任务，超出会返回 `run.rejected`
 - `run.cancel`：`{ "runId": "string(optional)", "sessionId": "string(optional)" }`（至少一个）；仅提供 `sessionId` 时取消该会话当前 active run
-- 事件路由：为便于多端归属与 UI 路由，部分事件会附带 `sessionId`（如 `chat.message`、`run.started/run.completed/run.canceled/run.failed`、`run.rejected`）
+- 事件路由：为便于多端归属与 UI 路由，服务端会在可确定时为 run 相关事件补齐 `sessionId`
+  - 已包含/补齐的典型事件：`chat.message` / `chat.message.delta` / `run.command` / `run.command.outputDelta` / `run.reasoning` / `run.reasoning.delta` / `diff.updated` / `run.plan.updated` / `run.started/run.completed/run.canceled/run.failed` / `run.rejected`
+  - 约定：当 `sessionId` 缺失且无法从上下文推断时，事件可能仍不含 `sessionId`（客户端需回退到 `runId -> sessionId` 映射）
+
+#### 场景: 多端重连与运行快照（active runs）
+为解决“客户端在 run.started 之后才连入 WS 导致无法得知当前哪些会话正在运行”的问题，服务端在 WS 握手后会下发运行快照：
+- event `run.active.snapshot`
+  - `activeRuns[]`: `{ sessionId, runId }` 列表（同一 `sessionId` 同时仅一个 `runId`）
+  - 用途：会话列表页展示多会话 Running 指示器；进入正在运行的会话时可立即接上增量事件路由
 
 #### 场景: 多模态输入（图片）
 `chat.send` 支持携带 `images`（data URL 数组），用于将图片作为输入发送给模型；服务端会将其映射到 `codex app-server` 的 `turn/start.input`（`type=image` 且 `url=dataUrl`）。

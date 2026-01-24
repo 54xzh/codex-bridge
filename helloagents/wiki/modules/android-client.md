@@ -7,8 +7,9 @@
 - **职责:**
   - 连接设备（局域网配对，获取并保存 deviceToken）
   - 会话列表（加载会话、进入聊天）
+  - 会话运行状态指示（WS 常驻连接：Running/Completed/Warning，对齐 Windows）
   - 聊天界面（加载历史、连接 WS、发送 `chat.send`、展示 plan 与执行过程/trace）
-- **状态:** ??开发中
+- **状态:** 开发中
 - **最后更新:** 2026-01-23
 
 ## 规范
@@ -27,6 +28,7 @@ Android 端 UI 必须拆分为三个模块页面，并统一使用 Material3。
 - 进入“会话列表”作为主界面
 - 点击任一会话，进入“聊天界面”并加载历史消息
   - assistant 消息支持展示“执行过程（Trace）”：思考摘要（run.reasoning）与执行命令（run.command）
+  - 若该会话正在运行：进入后应能通过 `run.active.snapshot` + 事件 `sessionId` 补齐及时接上增量更新（不仅依赖 UI 过滤占位正文）
 
 #### 场景: 从主界面进入连接设备
 已完成配对但需要重新配对或切换后端
@@ -70,6 +72,12 @@ Android 端 UI 必须拆分为三个模块页面，并统一使用 Material3。
 - 执行过程（Trace）以可折叠区块展示，折叠策略与 Windows 端保持一致：
   - 历史消息默认折叠
   - 运行中可随事件增量更新（reasoning/command/diff），必要时自动展开
+- 执行计划（turn plan）展示全量步骤（可滚动），并显示状态标签：待处理/进行中/已完成/异常（兼容 `pending/inProgress/completed/failed` 与旧版 `in_progress`）
+- 历史回放中的 trace-only 占位 assistant 文本（如 `（未输出正文）`/`无正文输出`）在 Android 端不显示正文，仅保留 Trace，避免执行中出现“无正文”观感
+
+## UI 约定（会话列表）
+- 会话列表页保持 WS 常驻连接，接收 `run.active.snapshot` 与 run 生命周期事件以更新指示器
+- 指示器优先级对齐 Windows：Running（进度环）> Warning（黄点）> Completed（绿点）> None
 
 ## 数据模型
 

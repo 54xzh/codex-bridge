@@ -62,6 +62,7 @@ public sealed class WebSocketHub
         try
         {
             await SendAsync(_clients[clientId], CreateEvent("bridge.connected", new { clientId }), context.RequestAborted);
+            await SendAsync(_clients[clientId], CreateEvent("run.active.snapshot", new { activeRuns = BuildActiveRunSnapshot() }), context.RequestAborted);
             if (!string.IsNullOrWhiteSpace(auth.DeviceId))
             {
                 await BroadcastToLoopbackAsync(
@@ -390,26 +391,16 @@ public sealed class WebSocketHub
     {
         if (string.Equals(envelope.Type, "event", StringComparison.OrdinalIgnoreCase))
         {
-            if (string.Equals(envelope.Name, "session.created", StringComparison.OrdinalIgnoreCase)
-                && TryGetString(envelope.Data, "sessionId", out var sessionId))
+            var extractedSessionId = ExtractSessionIdForRun(envelope.Data);
+            if (!string.IsNullOrWhiteSpace(extractedSessionId))
             {
-                sessionId = NormalizeSessionId(sessionId);
-                if (!string.IsNullOrWhiteSpace(sessionId))
-                {
-                    run.SessionId = sessionId;
-                    _activeRunBySessionId.TryAdd(sessionId, run.RunId);
-                }
+                run.SessionId = extractedSessionId;
+                _activeRunBySessionId.TryAdd(extractedSessionId, run.RunId);
             }
 
-            if (string.Equals(envelope.Name, "turn.started", StringComparison.OrdinalIgnoreCase)
-                && TryGetString(envelope.Data, "threadId", out var threadId))
+            if (!string.IsNullOrWhiteSpace(run.SessionId))
             {
-                threadId = NormalizeSessionId(threadId);
-                if (!string.IsNullOrWhiteSpace(threadId))
-                {
-                    run.SessionId = threadId;
-                    _activeRunBySessionId.TryAdd(threadId, run.RunId);
-                }
+                envelope = EnsureSessionId(envelope, run.SessionId);
             }
         }
 
@@ -418,6 +409,66 @@ public sealed class WebSocketHub
 
     private static string? NormalizeSessionId(string? sessionId) =>
         string.IsNullOrWhiteSpace(sessionId) ? null : sessionId.Trim();
+
+    internal static string? ExtractSessionIdForRun(JsonElement data)
+    {
+        if (TryGetString(data, "sessionId", out var sessionId))
+        {
+            return NormalizeSessionId(sessionId);
+        }
+
+        if (TryGetString(data, "threadId", out var threadId))
+        {
+            return NormalizeSessionId(threadId);
+        }
+
+        return null;
+    }
+
+    internal static BridgeEnvelope EnsureSessionId(BridgeEnvelope envelope, string sessionId)
+    {
+        if (envelope.Data.ValueKind != JsonValueKind.Object)
+        {
+            return envelope;
+        }
+
+        if (TryGetString(envelope.Data, "sessionId", out var existing) && !string.IsNullOrWhiteSpace(existing))
+        {
+            return envelope;
+        }
+
+        var payload = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+        foreach (var prop in envelope.Data.EnumerateObject())
+        {
+            payload[prop.Name] = prop.Value.Clone();
+        }
+
+        payload["sessionId"] = JsonSerializer.SerializeToElement(sessionId, BridgeJson.SerializerOptions);
+        envelope.Data = JsonSerializer.SerializeToElement(payload, BridgeJson.SerializerOptions);
+        return envelope;
+    }
+
+    private object[] BuildActiveRunSnapshot()
+    {
+        if (_activeRunBySessionId.IsEmpty)
+        {
+            return Array.Empty<object>();
+        }
+
+        var pairs = _activeRunBySessionId.ToArray();
+        var list = new List<object>(pairs.Length);
+        foreach (var (sessionId, runId) in pairs)
+        {
+            if (string.IsNullOrWhiteSpace(sessionId) || string.IsNullOrWhiteSpace(runId))
+            {
+                continue;
+            }
+
+            list.Add(new { sessionId, runId });
+        }
+
+        return list.ToArray();
+    }
 
     private (string? approvalPolicy, string? sandbox) ResolveDefaultRunSettings(string? sessionId)
     {
@@ -647,7 +698,7 @@ public sealed class WebSocketHub
                             runId,
                             itemId,
                             command,
-                            status = string.IsNullOrWhiteSpace(status) ? "completed" : status,
+                            status = NormalizeCommandStatus(status, fallback: "completed"),
                             exitCode = hasExitCode ? exitCode : (int?)null,
                             output = string.IsNullOrWhiteSpace(output) ? null : output,
                         });
@@ -702,15 +753,15 @@ public sealed class WebSocketHub
 
                 TryGetString(item, "status", out var status);
 
-                envelope = CreateEvent(
-                    "run.command",
-                    new
-                    {
-                        runId,
-                        itemId,
-                        command,
-                        status = string.IsNullOrWhiteSpace(status) ? "in_progress" : status,
-                    });
+                    envelope = CreateEvent(
+                        "run.command",
+                        new
+                        {
+                            runId,
+                            itemId,
+                            command,
+                            status = NormalizeCommandStatus(status, fallback: "inProgress"),
+                        });
                 return true;
             }
 
@@ -744,6 +795,14 @@ public sealed class WebSocketHub
 
         value = property.GetString();
         return true;
+    }
+
+    private static string NormalizeCommandStatus(string? status, string fallback)
+    {
+        var normalized = string.IsNullOrWhiteSpace(status) ? fallback : status.Trim();
+        return string.Equals(normalized, "in_progress", StringComparison.OrdinalIgnoreCase)
+            ? "inProgress"
+            : normalized;
     }
 
     private static string? TryGetTurnFailureMessage(JsonElement turn)
